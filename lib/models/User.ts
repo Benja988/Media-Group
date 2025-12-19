@@ -1,49 +1,71 @@
-import { Schema, model, models, Types } from "mongoose";
+import { Schema, model, models } from "mongoose";
+import { UserRole } from "@/types/auth";
 
 const UserSchema = new Schema(
   {
-    name: { type: String, trim: true },
-
     email: {
       type: String,
       required: true,
-      lowercase: true,
-      trim: true,
       unique: true,
+      lowercase: true,
       index: true,
     },
 
-    avatarUrl: String,
+    passwordHash: {
+      type: String,
+      required: true,
+      select: false,
+    },
 
     role: {
       type: String,
       enum: [
         "super_admin",
-        "media_admin",
+        "group_admin",
         "station_admin",
         "editor",
-        "presenter",
-        "listener",
+        "contributor",
+        "user",
       ],
-      default: "listener",
+      default: "user",
       index: true,
     },
 
-    mediaGroupId: {
-      type: Types.ObjectId,
-      ref: "MediaGroup",
-      index: true,
+    scope: {
+      mediaGroupId: {
+        type: Schema.Types.ObjectId,
+        ref: "MediaGroup",
+      },
+      stationIds: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: "Station",
+        },
+      ],
     },
 
-    stationIds: [{ type: Types.ObjectId, ref: "Station" }],
+    profile: {
+      firstName: String,
+      lastName: String,
+      avatarUrl: String,
+    },
+
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
 
     isActive: {
       type: Boolean,
       default: true,
       index: true,
     },
+
+    lastLoginAt: Date,
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true }
 );
+
+export type UserDocument = typeof UserSchema;
 
 export default models.User || model("User", UserSchema);
