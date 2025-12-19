@@ -62,8 +62,8 @@ const MediaGroupSchema = new Schema(
 );
 
 /* Indexes */
-MediaGroupSchema.index({ slug: 1 });
-MediaGroupSchema.index({ status: 1 });
+/* MediaGroupSchema.index({ slug: 1 });
+MediaGroupSchema.index({ status: 1 }); */
 
 export default models.MediaGroup ||
   model("MediaGroup", MediaGroupSchema);
