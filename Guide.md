@@ -10,3 +10,6 @@ $files = 'MediaGroup.ts','Station.ts','Channel.ts','Content.ts','LiveStream.ts',
 foreach ($f in $files) { New-Item -Path ".\lib\models\$f" -ItemType File -Force }
 
 
+# Creating files in Service folder
+$files = 'mediaGroup.service.ts','station.service.ts','channel.service.ts','content.service.ts','liveStream.service.ts','user.service.ts','engagement.service.ts'
+foreach ($f in $files) { New-Item -Path ".\services\$f" -ItemType File -Force }
