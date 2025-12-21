@@ -1,5 +1,51 @@
 /* global.css */
 
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
+
+
+
+:root {
+  --background: 2 6 23;
+  --foreground: 226 232 240;
+
+  --card: 15 23 42;
+  --card-foreground: 226 232 240;
+
+  --primary: 37 99 235;
+  --primary-foreground: 255 255 255;
+
+  --muted: 30 41 59;
+  --muted-foreground: 148 163 184;
+
+  --border: 30 41 59;
+}
+
+
+html:not(.dark) {
+  --background: 248 250 252;      
+  --foreground: 15 23 42;          
+
+  --card: 255 255 255;
+  --card-foreground: 15 23 42;
+
+  --primary: 37 99 235;
+  --primary-foreground: 255 255 255;
+
+  --muted: 226 232 240;
+  --muted-foreground: 71 85 105;
+
+  --border: 226 232 240;
+}
+
+html {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+body {
+  background-color: rgb(var(--background));
+  color: rgb(var(--foreground));
+}
 
