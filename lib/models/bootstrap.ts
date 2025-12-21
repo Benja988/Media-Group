@@ -7,3 +7,4 @@ import "./Category";
 import "./Tag";
 import "./User";
 import "./Engagement";
+import "./RefreshToken";

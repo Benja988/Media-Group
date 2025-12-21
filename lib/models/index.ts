@@ -7,3 +7,4 @@ export { default as Category } from "./Category";
 export { default as Tag } from "./Tag";
 export { default as User } from "./User";
 export { default as Engagement } from "./Engagement";
+export { default as RefreshToken } from "./RefreshToken"

@@ -1,5 +1,4 @@
 import { Schema, model, models } from "mongoose";
-import { UserRole } from "@/types/auth";
 
 const UserSchema = new Schema(
   {
@@ -32,16 +31,8 @@ const UserSchema = new Schema(
     },
 
     scope: {
-      mediaGroupId: {
-        type: Schema.Types.ObjectId,
-        ref: "MediaGroup",
-      },
-      stationIds: [
-        {
-          type: Schema.Types.ObjectId,
-          ref: "Station",
-        },
-      ],
+      mediaGroupId: { type: Schema.Types.ObjectId, ref: "MediaGroup" },
+      stationIds: [{ type: Schema.Types.ObjectId, ref: "Station" }],
     },
 
     profile: {
@@ -50,22 +41,17 @@ const UserSchema = new Schema(
       avatarUrl: String,
     },
 
-    emailVerified: {
-      type: Boolean,
-      default: false,
-    },
+    emailVerified: { type: Boolean, default: false },
 
-    isActive: {
-      type: Boolean,
-      default: true,
-      index: true,
-    },
+    emailVerificationToken: String,
+    passwordResetToken: String,
+    passwordResetExpires: Date,
+
+    isActive: { type: Boolean, default: true },
 
     lastLoginAt: Date,
   },
   { timestamps: true }
 );
-
-export type UserDocument = typeof UserSchema;
 
 export default models.User || model("User", UserSchema);

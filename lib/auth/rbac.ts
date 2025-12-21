@@ -9,10 +9,7 @@ const rolePermissions: Record<UserRole, string[]> = {
     user: [],
 }
 
-export function hasPermission(
-    role: UserRole,
-    permission: string
-): boolean {
+export function hasPermission(role: UserRole, permission: string): boolean {
     const perms = rolePermissions[role] || [];
     return perms.includes("*") || perms.includes(permission);
 }

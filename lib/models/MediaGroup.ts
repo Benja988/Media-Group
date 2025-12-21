@@ -65,5 +65,5 @@ const MediaGroupSchema = new Schema(
 /* MediaGroupSchema.index({ slug: 1 });
 MediaGroupSchema.index({ status: 1 }); */
 
-export default models.MediaGroup ||
-  model("MediaGroup", MediaGroupSchema);
+export default models.MediaGroup || model("MediaGroup", MediaGroupSchema);
+  
