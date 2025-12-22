@@ -42,10 +42,15 @@ html:not(.dark) {
 
 html {
   transition: background-color 0.25s ease, color 0.25s ease;
+  zoom: 0.8;
+  font-size: 70%;
 }
 
 body {
   background-color: rgb(var(--background));
   color: rgb(var(--foreground));
+  /* transform: scale(0.7);
+  transform-origin: 0 0;
+  width: calc(100% / 0.7); */
 }
 

@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import Link from 'next/link';
 
 import { FormCard } from '@/components/auth/FormCard';
-import { AuthButton } from '@/components/auth/AuthButton';
+import { VerifyLoading } from '@/components/auth/VerifyLoading';
+import { VerifySuccess } from '@/components/auth/VerifySuccess';
+import { VerifyError } from '@/components/auth/VerifyError';
 
 export function VerifyEmailClient() {
   const router = useRouter();
@@ -20,75 +20,39 @@ export function VerifyEmailClient() {
     const verifyEmail = async () => {
       if (!token) {
         setStatus('error');
-        setMessage('Invalid verification link');
+        setMessage('No verification token provided');
         return;
       }
 
       try {
-        const response = await fetch('/api/auth/verify-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        });
+        const response = await fetch(`/api/auth/verify-email?token=${token}`);
+        const data = await response.json();
 
         if (response.ok) {
           setStatus('success');
-          setMessage('Email verified successfully! You can now log in.');
+          setMessage(data.message || 'Email verified successfully!');
+          setTimeout(() => router.push('/login'), 2000);
         } else {
-          const errorData = await response.json();
           setStatus('error');
-          setMessage(errorData.message || 'Invalid or expired verification token');
+          setMessage(data.message || 'Failed to verify email');
         }
-      } catch {
+      } catch (error) {
         setStatus('error');
         setMessage('An error occurred during verification');
       }
     };
 
     verifyEmail();
-  }, [token]);
+  }, [token, router]);
 
   return (
     <FormCard title="Email Verification">
       <div className="text-center space-y-6">
-        {status === 'loading' && (
-          <>
-            <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
-            </div>
-            <p className="text-gray-600">Verifying your email…</p>
-          </>
-        )}
+        {status === 'loading' && <VerifyLoading />}
 
-        {status === 'success' && (
-          <>
-            <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-            </div>
-            <p className="text-gray-600">{message}</p>
-            <AuthButton asChild>
-              <Link href="/login">Continue to Login</Link>
-            </AuthButton>
-          </>
-        )}
+        {status === 'success' && <VerifySuccess message={message} />}
 
-        {status === 'error' && (
-          <>
-            <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-              <XCircle className="h-8 w-8 text-red-600" />
-            </div>
-            <p className="text-gray-600">{message}</p>
-
-            <div className="space-y-3">
-              <AuthButton asChild>
-                <Link href="/register">Register Again</Link>
-              </AuthButton>
-              <AuthButton variant="outline" asChild>
-                <Link href="/login">Back to Login</Link>
-              </AuthButton>
-            </div>
-          </>
-        )}
+        {status === 'error' && <VerifyError message={message} />}
       </div>
     </FormCard>
   );
