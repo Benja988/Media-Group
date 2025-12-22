@@ -12,13 +12,13 @@ import { FormInput } from '@/components/auth/FormInput';
 import { AuthButton } from '@/components/auth/AuthButton';
 import { AlertMessage } from '@/components/auth/AlertMessage';
 
-const forgotPasswordSchema = z.object({
+const resendVerificationSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
 });
 
-type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
+type ResendVerificationFormData = z.infer<typeof resendVerificationSchema>;
 
-export default function ForgotPasswordPage() {
+export default function ResendVerificationPage() {
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,23 +27,23 @@ export default function ForgotPasswordPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<ForgotPasswordFormData>({
-    resolver: zodResolver(forgotPasswordSchema),
+  } = useForm<ResendVerificationFormData>({
+    resolver: zodResolver(resendVerificationSchema),
   });
 
-  const onSubmit = async (data: ForgotPasswordFormData) => {
+  const onSubmit = async (data: ResendVerificationFormData) => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch('/api/auth/forgot-password', {
+      const response = await fetch('/api/auth/resend-verification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send reset email');
+        throw new Error('Failed to send verification email');
       }
 
       setEmailSent(true);
@@ -57,8 +57,8 @@ export default function ForgotPasswordPage() {
   if (emailSent) {
     return (
       <FormCard
-        title="Check Your Email"
-        description="We've sent password reset instructions to your email"
+        title="Verification Email Sent"
+        description="Check your inbox for the verification link"
       >
         <div className="text-center space-y-6">
           <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
@@ -67,13 +67,13 @@ export default function ForgotPasswordPage() {
           
           <div className="space-y-2">
             <h3 className="text-lg font-semibold text-gray-900">
-              Reset Email Sent
+              Check Your Email
             </h3>
             <p className="text-gray-600">
-              If an account exists with the email you provided, you will receive password reset instructions shortly.
+              We've sent a new verification link to your email address.
             </p>
             <p className="text-sm text-gray-500">
-              The link will expire in 1 hour.
+              Please check your inbox and spam folder.
             </p>
           </div>
 
@@ -92,8 +92,8 @@ export default function ForgotPasswordPage() {
 
   return (
     <FormCard
-      title="Forgot Password"
-      description="Enter your email to receive reset instructions"
+      title="Resend Verification Email"
+      description="Enter your email to receive a new verification link"
       footer={
         <div className="text-center text-sm text-gray-600">
           <Link 
@@ -119,23 +119,14 @@ export default function ForgotPasswordPage() {
             {...register('email')}
           />
           <p className="text-sm text-gray-500">
-            We'll send you a link to reset your password
+            We'll send you a new verification link
           </p>
         </div>
 
         <AuthButton type="submit" loading={loading}>
           <Mail size={18} />
-          Send Reset Link
+          Send Verification Link
         </AuthButton>
-
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <div className="h-5 w-5 text-yellow-600">⚠️</div>
-            <div className="text-sm text-yellow-800">
-              <strong>Note:</strong> For security reasons, password reset links are valid for 1 hour only.
-            </div>
-          </div>
-        </div>
       </form>
     </FormCard>
   );

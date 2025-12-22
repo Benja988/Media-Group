@@ -1,10 +1,10 @@
-import React from "react";
+import { Suspense } from 'react';
+import { ResetPasswordClient } from '@/components/auth/ResetPasswordClient';
 
 export default function ResetPasswordPage() {
-	return (
-		<main>
-			<h1>Reset Password</h1>
-			<p>Enter your new password.</p>
-		</main>
-	);
+  return (
+    <Suspense fallback={<div className="p-8 text-center">Loading…</div>}>
+      <ResetPasswordClient />
+    </Suspense>
+  );
 }

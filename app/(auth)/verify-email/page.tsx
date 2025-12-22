@@ -1,10 +1,10 @@
-import React from "react";
+import { Suspense } from 'react';
+import { VerifyEmailClient } from '@/components/auth/VerifyEmailClient';
 
 export default function VerifyEmailPage() {
-	return (
-		<main>
-			<h1>Verify Your Email</h1>
-			<p>Check your inbox for the verification link.</p>
-		</main>
-	);
+  return (
+    <Suspense fallback={<div className="p-8 text-center">Verifying…</div>}>
+      <VerifyEmailClient />
+    </Suspense>
+  );
 }
