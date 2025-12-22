@@ -6,7 +6,6 @@ module.exports = {
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './lib/**/*.{js,ts,jsx,tsx,mdx}',
   ],
-  darkMode: ["class"],
   theme: {
     extend: {
       colors: {
@@ -31,3 +30,6 @@ module.exports = {
     // require('@tailwindcss/typography'),
   ],
 }
+
+
+
