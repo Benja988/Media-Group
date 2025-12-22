@@ -1,5 +1,4 @@
-import { ReactNode } from 'react';
-import { Slot } from '@radix-ui/react-slot';
+import React, { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 
 interface AuthButtonProps
@@ -19,7 +18,7 @@ export function AuthButton({
   asChild = false,
   ...props
 }: AuthButtonProps) {
-  const Comp = asChild ? Slot : 'button';
+  const Comp = asChild ? undefined : 'button';
 
   const baseClasses = `
     px-4 py-3 rounded-lg font-medium transition-all duration-200
@@ -38,14 +37,46 @@ export function AuthButton({
       'border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-blue-500',
   };
 
+  if (asChild) {
+    // when using a child element (e.g. Next `Link`) we must ensure there is a single
+    // React element child and clone it with the button props applied. This avoids
+    // `React.Children.only` errors from Slot when multiple children are present.
+    const child = React.Children.only(children) as React.ReactElement;
+    const childClass = [
+      (child.props && (child.props as any).className) || '',
+      baseClasses,
+      variants[variant],
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const mergedProps: any = {
+      ...props,
+      className: childClass,
+    };
+
+    if (loading) {
+      const newChildren = (
+        <>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {child.props && (child.props as any).children}
+        </>
+      );
+
+      return React.cloneElement(child, mergedProps, newChildren);
+    }
+
+    return React.cloneElement(child, mergedProps);
+  }
+
   return (
-    <Comp
+    <button
       className={`${baseClasses} ${variants[variant]}`}
-      disabled={!asChild && loading}
+      disabled={loading}
       {...props}
     >
       {loading && <Loader2 className="h-4 w-4 animate-spin" />}
       {children}
-    </Comp>
+    </button>
   );
 }

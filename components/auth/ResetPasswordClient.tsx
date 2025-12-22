@@ -28,7 +28,7 @@ type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>;
 
 export function ResetPasswordClient() {
   const router = useRouter();
-  const searchParams = useSearchParams(); // ✅ now safely suspended
+  const searchParams = useSearchParams(); 
   const token = searchParams.get('token');
 
   const [loading, setLoading] = useState(false);

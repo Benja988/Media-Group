@@ -1,4 +1,6 @@
 import { mailer } from "@/lib/mailer";
+import { logger } from "@/lib/logger";
+import nodemailer from "nodemailer";
 
 
 function baseTemplate({title,body,actionUrl,actionText,}:{title: string;body: string;actionUrl: string;actionText: string;}) {
@@ -73,36 +75,50 @@ function baseTemplate({title,body,actionUrl,actionText,}:{title: string;body: st
 export async function sendVerificationEmail(email: string, token: string) {
   const link = `${process.env.APP_URL}/verify-email?token=${token}`;
 
-  await mailer.sendMail({
-    to: email,
-    subject: "Verify your email address",
-    html: baseTemplate({
-      title: "Verify your email",
-      body: `
+  try {
+    const info = await mailer.sendMail({
+      to: email,
+      subject: "Verify your email address",
+      html: baseTemplate({
+        title: "Verify your email",
+        body: `
         Thanks for signing up! To complete your registration and secure your account,
         please verify your email address by clicking the button below.
       `,
-      actionUrl: link,
-      actionText: "Verify Email",
-    }),
-  });
+        actionUrl: link,
+        actionText: "Verify Email",
+      }),
+    });
+
+    const preview = nodemailer.getTestMessageUrl ? nodemailer.getTestMessageUrl(info) : undefined;
+    logger.info("Verification email queued", { email, messageId: info.messageId, preview });
+  } catch (err: any) {
+    logger.error("Failed to send verification email", { email, error: err?.message || err });
+  }
 }
 
 
 export async function sendPasswordResetEmail(email: string, token: string) {
   const link = `${process.env.APP_URL}/reset-password?token=${token}`;
 
-  await mailer.sendMail({
-    to: email,
-    subject: "Reset your password",
-    html: baseTemplate({
-      title: "Reset your password",
-      body: `
+  try {
+    const info = await mailer.sendMail({
+      to: email,
+      subject: "Reset your password",
+      html: baseTemplate({
+        title: "Reset your password",
+        body: `
         We received a request to reset your password. This link will expire in
         1 hour. Click the button below to set a new password.
       `,
-      actionUrl: link,
-      actionText: "Reset Password",
-    }),
-  });
+        actionUrl: link,
+        actionText: "Reset Password",
+      }),
+    });
+
+    const preview = nodemailer.getTestMessageUrl ? nodemailer.getTestMessageUrl(info) : undefined;
+    logger.info("Password reset email queued", { email, messageId: info.messageId, preview });
+  } catch (err: any) {
+    logger.error("Failed to send password reset email", { email, error: err?.message || err });
+  }
 }
