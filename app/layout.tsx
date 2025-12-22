@@ -35,11 +35,12 @@ export default function RootLayout({
           ${geistSans.variable}
           ${geistMono.variable}
           min-h-screen
-          bg-slate-950
-          text-slate-100
+          bg-background
+          text-foreground
           antialiased
         `}
       >
+
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
