@@ -1,26 +1,115 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 2 6 23;
+    --foreground: 226 232 240;
+    --card: 15 23 42;
+    --card-foreground: 226 232 240;
+    --primary: 37 99 235;
+    --primary-foreground: 255 255 255;
+    --muted: 30 41 59;
+    --muted-foreground: 148 163 184;
+    --border: 30 41 59;
+  }
+
+  html:not(.dark) {
+    --background: 248 250 252;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --card-foreground: 15 23 42;
+    --primary: 37 99 235;
+    --primary-foreground: 255 255 255;
+    --muted: 226 232 240;
+    --muted-foreground: 71 85 105;
+    --border: 226 232 240;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Responsive font-size scaling */
+  @media (min-width: 768px) {
+    html {
+      font-size: 14px;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    html {
+      font-size: 16px;
+    }
+  }
+
+  @media (min-width: 1536px) {
+    html {
+      font-size: 18px;
+    }
+  }
+
+  body {
+    background-color: rgb(var(--background));
+    color: rgb(var(--foreground));
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Container class for consistent spacing */
+  .container-responsive {
+    @apply w-full px-4 mx-auto;
+    max-width: 100%;
+  }
+
+  @media (min-width: 640px) {
+    .container-responsive {
+      @apply px-6;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .container-responsive {
+      @apply px-8;
+      max-width: 90%;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container-responsive {
+      max-width: 1200px;
+    }
+  }
+
+  @media (min-width: 1536px) {
+    .container-responsive {
+      max-width: 1400px;
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Consistent spacing utilities */
+@layer components {
+  .section-padding {
+    @apply py-8 md:py-12 lg:py-16;
+  }
+
+  .content-padding {
+    @apply px-4 md:px-6 lg:px-8;
+  }
+
+  .card-padding {
+    @apply p-4 md:p-6 lg:p-8;
+  }
 }
