@@ -1,56 +1,115 @@
-/* global.css */
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    --background: 2 6 23;
+    --foreground: 226 232 240;
+    --card: 15 23 42;
+    --card-foreground: 226 232 240;
+    --primary: 37 99 235;
+    --primary-foreground: 255 255 255;
+    --muted: 30 41 59;
+    --muted-foreground: 148 163 184;
+    --border: 30 41 59;
+  }
 
+  html:not(.dark) {
+    --background: 248 250 252;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --card-foreground: 15 23 42;
+    --primary: 37 99 235;
+    --primary-foreground: 255 255 255;
+    --muted: 226 232 240;
+    --muted-foreground: 71 85 105;
+    --border: 226 232 240;
+  }
 
+  * {
+    @apply border-border;
+  }
 
-:root {
-  --background: 2 6 23;
-  --foreground: 226 232 240;
+  html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
 
-  --card: 15 23 42;
-  --card-foreground: 226 232 240;
+  /* Responsive font-size scaling */
+  @media (min-width: 768px) {
+    html {
+      font-size: 14px;
+    }
+  }
 
-  --primary: 37 99 235;
-  --primary-foreground: 255 255 255;
+  @media (min-width: 1024px) {
+    html {
+      font-size: 16px;
+    }
+  }
 
-  --muted: 30 41 59;
-  --muted-foreground: 148 163 184;
+  @media (min-width: 1536px) {
+    html {
+      font-size: 18px;
+    }
+  }
 
-  --border: 30 41 59;
+  body {
+    background-color: rgb(var(--background));
+    color: rgb(var(--foreground));
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Container class for consistent spacing */
+  .container-responsive {
+    @apply w-full px-4 mx-auto;
+    max-width: 100%;
+  }
+
+  @media (min-width: 640px) {
+    .container-responsive {
+      @apply px-6;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .container-responsive {
+      @apply px-8;
+      max-width: 90%;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container-responsive {
+      max-width: 1200px;
+    }
+  }
+
+  @media (min-width: 1536px) {
+    .container-responsive {
+      max-width: 1400px;
+    }
+  }
 }
 
+/* Consistent spacing utilities */
+@layer components {
+  .section-padding {
+    @apply py-8 md:py-12 lg:py-16;
+  }
 
-html:not(.dark) {
-  --background: 248 250 252;      
-  --foreground: 15 23 42;          
+  .content-padding {
+    @apply px-4 md:px-6 lg:px-8;
+  }
 
-  --card: 255 255 255;
-  --card-foreground: 15 23 42;
-
-  --primary: 37 99 235;
-  --primary-foreground: 255 255 255;
-
-  --muted: 226 232 240;
-  --muted-foreground: 71 85 105;
-
-  --border: 226 232 240;
+  .card-padding {
+    @apply p-4 md:p-6 lg:p-8;
+  }
 }
-
-html {
-  transition: background-color 0.25s ease, color 0.25s ease;
-  zoom: 0.8;
-  font-size: 70%;
-}
-
-body {
-  background-color: rgb(var(--background));
-  color: rgb(var(--foreground));
-  /* transform: scale(0.7);
-  transform-origin: 0 0;
-  width: calc(100% / 0.7); */
-}
-

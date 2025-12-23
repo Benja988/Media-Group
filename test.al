@@ -1,774 +1,478 @@
-codeunit 50017 "Charge Penalty Mobile Loans"
-{
-    var
-        Cust: Record Customer;
-        LoanRepSch: Record "Loan Repayment Schedule";
-        LoanApplicationSetup: Record "Loan Application Setup";
-        GlobalManagement: Codeunit "Global Management";
-        BOSAManagement: Codeunit "BOSA Management";
-        LoanProductType: Record "Loan Product Type";
-        SourceCodeSetup: Record "Source Code Setup";
-        TransactionTypeCodeSetup: Record "Transaction Type Code Setup";
-        Member: Record Member;
-        CustL: Record "Cust. Ledger Entry";
-        DCustL: Record "Detailed Cust. Ledg. Entry";
-        LoanApp: Record "Loan Application";
-        GenJournalLine: Record "Gen. Journal Line";
-        GenJnlPostBatch: Codeunit "Gen. Jnl.-Post Batch";
-
-        Text000: Label 'Penalty Charged-';
-        PostingDate: Date;
-
-        PenaltyDue: Decimal;
-        AmountPaid: Decimal;
-        OutBal: Decimal;
-        intBal: Decimal;
-        princBal: Decimal;
-        penBal: Decimal;
-
-        AccountTypeEnum: Enum "Gen. Journal Account Type";
-        BalAccountTypeEnum: Enum "Gen. Journal Account Type";
-        AppliesToDocTypeEnum: Enum "Gen. Journal Document Type";
-
-    trigger OnRun()
-    begin
-        ChargePenalty();
-    end;
-
-    procedure ChargePenalty()
-    begin
-        PostingDate := Today;
-
-        LoanApplicationSetup.Get();
-        GlobalManagement.ClearJournal(
-            LoanApplicationSetup."Penalty Template Name",
-            LoanApplicationSetup."Penalty Batch Name");
-
-        LoanApp.Reset();
-        LoanApp.SetRange(Posted, true);
-
-        if LoanApp.FindSet() then
-            repeat
-                LoanApp.CalcFields("Outstanding Balance");
-                LoanProductType.Get(LoanApp."Loan Product Type");
-
-                if LoanProductType."E-Loan" then begin
-                    if LoanApp."Outstanding Balance" > 0 then begin
-                        Cust.Get(LoanApp."No.");
-
-                        LoanRepSch.Reset();
-                        LoanRepSch.SetRange("Loan No.", LoanApp."No.");
-                        LoanRepSch.SetFilter("Repayment Date", '..%1', PostingDate);
-
-                        if LoanRepSch.FindSet() then
-                            repeat
-                                ProcessPenaltyForSchedule(LoanRepSch, Cust, PostingDate);
-                            until LoanRepSch.Next() = 0;
-                    end;
-                end;
-            until LoanApp.Next() = 0;
-
-        // ------------------------------------
-        // POST PENALTY JOURNALS FIRST
-        // ------------------------------------
-        GenJournalLine.Reset();
-        GenJournalLine.SetRange("Journal Template Name", LoanApplicationSetup."Penalty Template Name");
-        GenJournalLine.SetRange("Journal Batch Name", LoanApplicationSetup."Penalty Batch Name");
-
-        if GenJournalLine.FindSet() then
-            GenJnlPostBatch.Run(GenJournalLine);
-
-        // ------------------------------------
-        // CLEAR JOURNAL FOR RECOVERIES
-        // ------------------------------------
-        GlobalManagement.ClearJournal(
-            LoanApplicationSetup."Penalty Template Name",
-            LoanApplicationSetup."Penalty Batch Name");
-
-        // ------------------------------------
-        // SECOND PASS FOR RECOVERIES
-        // ------------------------------------
-        LoanApp.Reset();
-        LoanApp.SetRange(Posted, true);
-
-        if LoanApp.FindSet() then
-            repeat
-                LoanApp.CalcFields("Outstanding Balance");
-                LoanProductType.Get(LoanApp."Loan Product Type");
-
-                if LoanProductType."E-Loan" then begin
-                    if LoanApp."Outstanding Balance" > 0 then begin
-                        Cust.Get(LoanApp."No.");
-
-                        LoanRepSch.Reset();
-                        LoanRepSch.SetRange("Loan No.", LoanApp."No.");
-                        LoanRepSch.SetFilter("Repayment Date", '..%1', PostingDate);
-
-                        if LoanRepSch.FindSet() then
-                            repeat
-                                ProcessRecoveryForSchedule(LoanRepSch, Cust, PostingDate);
-                            until LoanRepSch.Next() = 0;
-                    end;
-                end;
-            until LoanApp.Next() = 0;
-
-        // ------------------------------------
-        // POST RECOVERY JOURNALS
-        // ------------------------------------
-        GenJournalLine.Reset();
-        GenJournalLine.SetRange("Journal Template Name", LoanApplicationSetup."Penalty Template Name");
-        GenJournalLine.SetRange("Journal Batch Name", LoanApplicationSetup."Penalty Batch Name");
-
-        if GenJournalLine.FindSet() then
-            GenJnlPostBatch.Run(GenJournalLine);
-    end;
-
-    procedure ProcessPenaltyForSchedule(
-        RepSch: Record "Loan Repayment Schedule";
-        Cust: Record Customer;
-        PostingDate: Date)
-    var
-        MonthsOverdue: Integer;
-    begin
-        MonthsOverdue := GetMonthsOverdue(RepSch."Repayment Date", PostingDate);
-
-        if MonthsOverdue <= 0 then
-            exit;
-
-        if MonthsOverdue > 2 then
-            MonthsOverdue := 2;
-
-        LoanApp.Reset();
-        LoanApp.SetRange("No.", RepSch."Loan No.");
-
-        if not LoanApp.FindFirst() then
-            exit;
-
-        LoanApp.CalcFields("Outstanding Balance");
-        if LoanApp."Outstanding Balance" <= 0 then
-            exit;
-
-        // -----------------------------
-        // MONTH 1: penalty only
-        // -----------------------------
-        if MonthsOverdue = 1 then begin
-            CapitalizePenaltyMob(
-                Cust,
-                RepSch."Repayment Date",
-                PostingDate,
-                LoanApp);
-        end;
-
-        // -----------------------------
-        // MONTH 2: penalty only (recovery moved out)
-        // -----------------------------
-        if MonthsOverdue = 2 then begin
-            CapitalizePenaltyMob(
-                Cust,
-                CalcDate('1M', RepSch."Repayment Date"),
-                PostingDate,
-                LoanApp);
-        end;
-    end;
-
-    procedure ProcessRecoveryForSchedule(
-        RepSch: Record "Loan Repayment Schedule";
-        Cust: Record Customer;
-        PostingDate: Date)
-    var
-        MonthsOverdue: Integer;
-        RecoveryPostDate: Date;
-        RunDate: Date;
-    begin
-        MonthsOverdue := GetMonthsOverdue(RepSch."Repayment Date", PostingDate);
-
-        if MonthsOverdue < 2 then
-            exit;
-
-        RunDate := CalcDate('1M', RepSch."Repayment Date");
-        RecoveryPostDate := CalcDate('CM', RunDate);
-
-        RecoverFromDeposits(Cust, RecoveryPostDate);
-    end;
-
-    procedure GetMonthsOverdue(RepaymentDate: Date; PostingDate: Date) Result: Integer
-    var
-        RepDay, RepMonth, RepYear : Integer;
-        PostDay, PostMonth, PostYear : Integer;
-    begin
-        Result := 0;
-
-        if PostingDate <= RepaymentDate then
-            exit;
-
-        // Extract day, month, year from RepaymentDate
-        RepDay := Date2DMY(RepaymentDate, 1);
-        RepMonth := Date2DMY(RepaymentDate, 2);
-        RepYear := Date2DMY(RepaymentDate, 3);
-
-        // Extract day, month, year from PostingDate
-        PostDay := Date2DMY(PostingDate, 1);
-        PostMonth := Date2DMY(PostingDate, 2);
-        PostYear := Date2DMY(PostingDate, 3);
-
-        // Calculate months difference
-        Result := (PostYear - RepYear) * 12 + (PostMonth - RepMonth);
-
-        // Subtract 1 if Posting day < Repayment day (partial month not counted)
-        if PostDay < RepDay then
-            Result -= 1;
-
-        // Cap at 2 months
-        if Result > 2 then
-            Result := 2;
-    end;
-
-    // =====================================================
-    // Capitalize penalty (monthly safe)
-    // =====================================================
-    procedure CapitalizePenaltyMob(
-        Customer: Record Customer;
-        RunDate: Date;
-        PostingDate: Date;
-        Loan: Record "Loan Application")
-    var
-        PenaltyPostDate: Date;
-    begin
-        AmountPaid := 0;
-
-        PenaltyPostDate := CalcDate('CM', RunDate);
-
-        LoanApplicationSetup.Get();
-        SourceCodeSetup.Get();
-        TransactionTypeCodeSetup.Get();
-        LoanProductType.Get(Customer."Customer Posting Group");
-
-        Loan.SetFilter("Date Filter", '..%1', PenaltyPostDate);
-        Loan.CalcFields("Outstanding Balance");
-        OutBal := Loan."Outstanding Balance";
-
-        if OutBal <= 0 then
-            exit;
-
-        CustL.Reset();
-        CustL.SetRange("Customer No.", Customer."No.");
-        CustL.SetFilter(
-            "Posting Date",
-            Format(RunDate) + '..' + Format(CalcDate('CM', RunDate)));
-        CustL.SetFilter(
-            "Transaction Type Code",
-            '%1|%2',
-            TransactionTypeCodeSetup."Principal Paid",
-            TransactionTypeCodeSetup."Loan Prepayment");
-        CustL.SetRange(Reversed, false);
-
-        if CustL.FindSet() then
-            repeat
-                CustL.CalcFields("Credit Amount");
-                AmountPaid += CustL."Credit Amount";
-            until CustL.Next() = 0;
-
-        if AmountPaid <> 0 then
-            exit;
-
-        PenaltyDue := Round((10 / 100) * OutBal, 1, '=');
-
-        CustL.Reset();
-        CustL.SetRange("Customer No.", Customer."No.");
-        CustL.SetRange(Reversed, false);
-        CustL.SetFilter(
-            "Posting Date",
-            Format(RunDate) + '..' + Format(CalcDate('CM', RunDate)));
-        CustL.SetRange("Transaction Type Code", 'PENDUE');
-
-        if CustL.FindFirst() then
-            exit;
-
-        GlobalManagement.CreateJournal(
-            LoanApplicationSetup."Penalty Template Name",
-            LoanApplicationSetup."Penalty Batch Name",
-            'PEN-' + Format(RunDate),
-            Customer."No.",
-            PenaltyPostDate,
-            AccountTypeEnum::Customer,
-            Customer."No.",
-            Text000 + Customer."No.",
-            PenaltyDue,
-            LoanProductType."Penalty Paid Posting Group",
-            TransactionTypeCodeSetup."Penalty Due",
-            SourceCodeSetup.Loan,
-            '',
-            BalAccountTypeEnum::"G/L Account",
-            '',
-            AppliesToDocTypeEnum::" ",
-            '');
-
-        GlobalManagement.CreateJournal(
-            LoanApplicationSetup."Penalty Template Name",
-            LoanApplicationSetup."Penalty Batch Name",
-            'PEN-' + Format(RunDate),
-            Customer."No.",
-            PenaltyPostDate,
-            AccountTypeEnum::"G/L Account",
-            LoanProductType."Penalty Paid Posting Group",
-            Text000 + Customer."No.",
-            -PenaltyDue,
-            '',
-            '',
-            SourceCodeSetup.Loan,
-            '',
-            BalAccountTypeEnum::"G/L Account",
-            '',
-            AppliesToDocTypeEnum::" ",
-            '');
-    end;
-
-    // =====================================================
-    // Recovery + blocking
-    // =====================================================
-    procedure RecoverFromDeposits(var Customer: Record Customer; PostingDate: Date)
-    var
-        DepositBalance: Decimal;
-        DepositAcc: Code[20];
-        TotalRecovery: Decimal;
-        BosaM: Codeunit "BOSA Management";
-        Recovered: Decimal;
-        PrincRec: Decimal;
-        IntRec: Decimal;
-        PenRec: Decimal;
-        Remaining: Decimal;
-    begin
-        LoanApplicationSetup.Get();
-
-        if not Member.Get(BOSAManagement.fnGetmemberNo(Customer."No.")) then
-            exit;
-
-        // ------------------------------------------------
-        // PREVENT DOUBLE RECOVERY
-        // ------------------------------------------------
-        /* if Member."Mobile Loan Blocked" then
-            exit; */
-
-        penBal := 0;
-        intBal := 0;
-        princBal := 0;
-
-        // ------------------------------------------------
-        // Calculate outstanding balances
-        // ------------------------------------------------
-        DCustL.Reset();
-        DCustL.SetRange("Customer No.", Customer."No.");
-        DCustL.SetFilter("Posting Date", '..%1', PostingDate);
-
-        if DCustL.FindSet() then
-            repeat
-                case DCustL."Transaction Type Code" of
-                    'PENDUE', 'PENPAID':
-                        penBal += DCustL.Amount;
-                    'INTDUE', 'INTPAID':
-                        intBal += DCustL.Amount;
-                    'NEWLOAN', 'PPAID':
-                        princBal += DCustL.Amount;
-                end;
-            until DCustL.Next() = 0;
-
-        TotalRecovery := Abs(penBal + intBal + princBal);
-
-        if TotalRecovery = 0 then
-            exit;
-
-        DepositBalance :=
-            (BosaM.GetDepositAccountBalance(Member."No.", PostingDate)) * -1;
-
-        DepositAcc :=
-            BosaM.GetDepositAccount(Member."No.");
-
-        // ------------------------------------------------
-        // Calculate recovery amounts in order: principal, interest, penalty
-        // ------------------------------------------------
-        Recovered := DepositBalance;
-        if TotalRecovery < Recovered then
-            Recovered := TotalRecovery;
-
-        PrincRec := Recovered;
-        if princBal < PrincRec then
-            PrincRec := princBal;
-        Recovered -= PrincRec;
-
-        IntRec := Recovered;
-        if intBal < IntRec then
-            IntRec := intBal;
-        Recovered -= IntRec;
-
-        PenRec := Recovered;
-        if penBal < PenRec then
-            PenRec := penBal;
-
-        LoanProductType.Get(Customer."Customer Posting Group");
-
-        // ------------------------------------------------
-        // PRINCIPAL RECOVERY
-        // ------------------------------------------------
-        if PrincRec <> 0 then begin
-            GlobalManagement.CreateJournal(
-                LoanApplicationSetup."Penalty Template Name",
-                LoanApplicationSetup."Penalty Batch Name",
-                'REC-' + Format(PostingDate),
-                DepositAcc,
-                PostingDate,
-                AccountTypeEnum::Vendor,
-                DepositAcc,
-                'Principal recovered from deposits ' + Customer."No.",
-                PrincRec,
-                '',
-                '',
-                SourceCodeSetup.Loan,
-                '',
-                BalAccountTypeEnum::"G/L Account",
-                '',
-                AppliesToDocTypeEnum::" ",
-                '');
-
-            GlobalManagement.CreateJournal(
-                LoanApplicationSetup."Penalty Template Name",
-                LoanApplicationSetup."Penalty Batch Name",
-                'REC-' + Format(PostingDate),
-                Customer."No.",
-                PostingDate,
-                AccountTypeEnum::Customer,
-                Customer."No.",
-                'Principal recovered from deposits ' + Customer."No.",
-                -PrincRec,
-                LoanProductType."Loan Posting Group",
-                'PPAID',
-                SourceCodeSetup.Loan,
-                '',
-                BalAccountTypeEnum::"G/L Account",
-                '',
-                AppliesToDocTypeEnum::" ",
-                '');
-        end;
-
-        // ------------------------------------------------
-        // INTEREST RECOVERY
-        // ------------------------------------------------
-        if IntRec <> 0 then begin
-            GlobalManagement.CreateJournal(
-                LoanApplicationSetup."Penalty Template Name",
-                LoanApplicationSetup."Penalty Batch Name",
-                'REC-' + Format(PostingDate),
-                DepositAcc,
-                PostingDate,
-                AccountTypeEnum::Vendor,
-                DepositAcc,
-                'Interest recovered from deposits ' + Customer."No.",
-                IntRec,
-                '',
-                '',
-                SourceCodeSetup.Loan,
-                '',
-                BalAccountTypeEnum::"G/L Account",
-                '',
-                AppliesToDocTypeEnum::" ",
-                '');
-
-            GlobalManagement.CreateJournal(
-                LoanApplicationSetup."Penalty Template Name",
-                LoanApplicationSetup."Penalty Batch Name",
-                'REC-' + Format(PostingDate),
-                Customer."No.",
-                PostingDate,
-                AccountTypeEnum::Customer,
-                Customer."No.",
-                'Interest recovered from deposits ' + Customer."No.",
-                -IntRec,
-                LoanProductType."Interest Due Posting Group",
-                'INTPAID',
-                SourceCodeSetup.Loan,
-                '',
-                BalAccountTypeEnum::"G/L Account",
-                '',
-                AppliesToDocTypeEnum::" ",
-                '');
-        end;
-
-        // ------------------------------------------------
-        // PENALTY RECOVERY
-        // ------------------------------------------------
-        if PenRec <> 0 then begin
-            GlobalManagement.CreateJournal(
-                LoanApplicationSetup."Penalty Template Name",
-                LoanApplicationSetup."Penalty Batch Name",
-                'REC-' + Format(PostingDate),
-                DepositAcc,
-                PostingDate,
-                AccountTypeEnum::Vendor,
-                DepositAcc,
-                'Penalty recovered from deposits ' + Customer."No.",
-                PenRec,
-                '',
-                '',
-                SourceCodeSetup.Loan,
-                '',
-                BalAccountTypeEnum::"G/L Account",
-                '',
-                AppliesToDocTypeEnum::" ",
-                '');
-
-            GlobalManagement.CreateJournal(
-                LoanApplicationSetup."Penalty Template Name",
-                LoanApplicationSetup."Penalty Batch Name",
-                'REC-' + Format(PostingDate),
-                Customer."No.",
-                PostingDate,
-                AccountTypeEnum::Customer,
-                Customer."No.",
-                'Penalty recovered from deposits ' + Customer."No.",
-                -PenRec,
-                LoanProductType."Penalty Due Posting Group",
-                'PENPAID',
-                SourceCodeSetup.Loan,
-                '',
-                BalAccountTypeEnum::"G/L Account",
-                '',
-                AppliesToDocTypeEnum::" ",
-                '');
-        end;
-
-        // ------------------------------------------------
-        // BLOCK + LIEN
-        // ------------------------------------------------
-        Member."Mobile Loan Blocked" := true;
-        Member."Blocked Until" := CalcDate('3M', PostingDate);
-
-        Remaining := TotalRecovery - (PrincRec + IntRec + PenRec);
-        Member."Deposit Lien Amount" := Remaining;
-
-        Member.Modify();
-    end;
-
-
-
-
-}
-
-
-
-
-
-
-/* codeunit 50017 "Charge Penalty Mobile Loans"
-{
-    var
-        Cust: Record Customer;
-        LoanRepSch: Record "Loan Repayment Schedule";
-        disbursalDate: Date;
-        "Loan Application": Record "Loan Application";
-        LoanApplicationSetup: Record "Loan Application Setup";
-        GlobalManagement: Codeunit "Global Management";
-        RunDate: Date;
-        BOSAManagement: Codeunit "BOSA Management";
-        LoanApplication: Record "Loan Application";
-        LoanProductType: Record "Loan Product Type";
-        Text000: Label 'Penalty Charged-';
-        CustomerPostingGroup: Record "Customer Posting Group";
-        PenaltyDue: Decimal;
-        Outbal: Decimal;
-        DCustL: Record "Detailed Cust. Ledg. Entry";
-        DFilter: Text[100];
-        AmoutInArrears: array[4] of Decimal;
-        Overpayment: array[2] of Decimal;
-        TotalArrears: Decimal;
-        LoanRepaymentSchedule: Record "Loan Repayment Schedule";
-        TotalMonthlyRepayment: Decimal;
-        AmountPaid: Decimal;
-        MonthDateFilter: Text;
-        Prepayment: Decimal;
-        dateDiff: Integer;
-        penAmt: Decimal;
-        PenCharged: Decimal;
-        defaulterLoanNo: Code[35];
-        intBal: Decimal;
-        princBal: Decimal;
-        penBal: Decimal;
-        SourceCodeSetup: Record "Source Code Setup";
-        TransactionTypeCodeSetup: Record "Transaction Type Code Setup";
-        AccountTypeEnum: Enum "Gen. Journal Account Type";
-        BalAccountTypeEnum: Enum "Gen. Journal Account Type";
-        AppliesToDocTypeEnum: Enum "Gen. Journal Document Type";
-        JournalTemplateName: Code[20];
-        JournalBatchName: Code[20];
-        Member: Record Member;
-        CustL: Record "Cust. Ledger Entry";
-        GenJournalLine: Record "Gen. Journal Line";
-        GenJnlPostBatch: Codeunit "Gen. Jnl.-Post Batch";
-        postingDate: Date;
-        LoanApp: Record "Loan Application";
-
-    trigger OnRun()
-    begin
-        //  for postingDate := 20240101D To Today do begin
-        postingDate := Today;
-        LoanApplicationSetup.Get();
-        GlobalManagement.ClearJournal(LoanApplicationSetup."Penalty Template Name", LoanApplicationSetup."Penalty Batch Name");
-
-        "Loan Application".Reset();
-        "Loan Application".SetRange(Posted, true);
-        //"Loan Application".SetFilter("Date Filter", '..%1', postingDate);
-        if "Loan Application".FindSet() then begin
-            repeat
-                "Loan Application".CalcFields("Outstanding Balance");
-                LoanProductType.Get("Loan Application"."Loan Product Type");
-                If LoanProductType."E-Loan" = true then begin
-                    "Loan Application".CalcFields("Outstanding Balance");
-                    if "Loan Application"."Outstanding Balance" > 0 then begin
-                        Cust.Get("Loan Application"."No.");
-                        if "Loan Application"."Date of Completion" >= postingDate then begin
-                            LoanRepSch.Reset();
-                            LoanRepSch.SetRange("Loan No.", "Loan Application"."No.");
-                            LoanRepSch.SetRange("Repayment Date", postingDate);
-                            if LoanRepSch.FindFirst() then begin
-                                LoanApp.Reset();
-                                LoanApp.SetRange("No.", "Loan Application"."No.");
-                                LoanApp.SetFilter("Date Filter", '..%1', postingDate);
-                                If LoanApp.FindFirst() then begin
-                                    LoanApp.CalcFields("Outstanding Balance");
-                                    CapitalizePenaltyMob(Cust, "Loan Application"."Disbursal Date", postingDate, LoanApp);
-                                end;
-                            end;
-                        end else begin
-                            if CalcDate('1M', "Loan Application"."Date of Completion") = postingDate then begin
-                                CreateMobileDefaultLoan(Cust, postingDate);
-                            end;
-                        end;
-                    end;
-                end;
-            until "Loan Application".Next = 0;
-        end;
-
-        GenJournalLine.RESET;
-        GenJournalLine.SETRANGE("Journal Template Name", LoanApplicationSetup."Penalty Template Name");
-        GenJournalLine.SETRANGE("Journal Batch Name", LoanApplicationSetup."Penalty Batch Name");
-        IF GenJournalLine.FINDSET THEN BEGIN
-            GenJnlPostBatch.RUN(GenJournalLine);
-        end;
-    end;
-
-
-
-
-    procedure CapitalizePenaltyMob(Customer: Record Customer; RunDate: Date; PostingDate: Date; Loan: Record "Loan Application")
-    var
-        Outbal: Decimal;
-    begin
-        with Customer do begin
-
-            LoanApplicationSetup.GET;
-            SourceCodeSetup.GET;
-            LoanProductType.Get(Customer."Customer Posting Group");
-            TransactionTypeCodeSetup.Get();
-            SourceCodeSetup.TestField(Loan);
-            TransactionTypeCodeSetup.TestField("Penalty Due");
-            TransactionTypeCodeSetup.TestField("Penalty Paid");
-            LoanApplicationSetup.TestField("Penalty Template Name");
-            LoanApplicationSetup.TestField("Penalty Batch Name");
-            DFilter := '..' + Format(PostingDate);
-            Outbal := 0;
-            Loan.CalcFields("Outstanding Balance");
-            Outbal := Loan."Outstanding Balance";
-            MonthDateFilter := Format(RunDate) + '..' + Format(PostingDate);
-
-            CustL.Reset();
-            CustL.SetRange("Customer No.", Customer."No.");
-            CustL.SetFilter("Posting Date", MonthDateFilter);
-            CustL.SetRange("Transaction Type Code", TransactionTypeCodeSetup."Principal Paid", TransactionTypeCodeSetup."Loan Prepayment");
-            CustL.SetRange(Reversed, false);
-            if CustL.FindSet() then begin
-                repeat
-                    CustL.CalcFields("Credit Amount");
-                    AmountPaid += CustL."Credit Amount";
-                until CustL.Next = 0;
-            end;
-
-            if AmountPaid = 0 then begin
-                PenaltyDue := 0;
-                PenaltyDue := Round(((5 / 100) * Outbal), 1, '=');
-            end;
-
-            if AmountPaid > 0 then begin
-                PenaltyDue := 0;
-                if AmountPaid < Loan."Approved Amount" then begin
-                    PenaltyDue := Round(((5 / 100) * Outbal), 1, '=');
-                end
-            end;
-
-            CustL.Reset();
-            CustL.SetRange("Customer No.", Customer."No.");
-            CustL.SetRange("Posting Date", PostingDate);
-            CustL.SetRange(Reversed, false);
-            CustL.SetRange("Transaction Type Code", 'PENDUE');
-            if not CustL.FindSet() then begin
-                PenaltyDue := PenaltyDue;
-            end else begin
-                PenaltyDue := 0;
-            end;
-
-            If PenaltyDue > 0 Then Begin
-                GlobalManagement.CreateJournal(LoanApplicationSetup."Penalty Template Name", LoanApplicationSetup."Penalty Batch Name", 'PEN-' + Format(PostingDate), "No.", PostingDate, AccountTypeEnum::Customer, "No.", Text000 + "No.", PenaltyDue, LoanProductType."Penalty Paid Posting Group",
-                TransactionTypeCodeSetup."Penalty Due", SourceCodeSetup.Loan, "Global Dimension 1 Code", BalAccountTypeEnum::"G/L Account", '', AppliesToDocTypeEnum::" ", '');
-                GlobalManagement.CreateJournal(LoanApplicationSetup."Penalty Template Name", LoanApplicationSetup."Penalty Batch Name", 'PEN-' + Format(PostingDate), "No.", PostingDate, AccountTypeEnum::"G/L Account", LoanProductType."Penalty Paid Posting Group", Text000 + "No.", -PenaltyDue, '',
-                '', SourceCodeSetup.Loan, "Global Dimension 1 Code", BalAccountTypeEnum::"G/L Account", '', AppliesToDocTypeEnum::" ", '');
-            end;
-        end;
-    end;
-
-    procedure CreateMobileDefaultLoan(Var Customer: Record Customer; postingDate: Date)
-    begin
-        with Customer Do Begin
-            Customer.SetFilter("Date Filter", '..%1', PostingDate);
-            LoanApplicationSetup.GET;
-
-            IF Member.GET(BOSAManagement.fnGetmemberNo("No.")) THEN BEGIN
-                penBal := 0;
-                intBal := 0;
-                princBal := 0;
-                Outbal := 0;
-
-                CalcFields("Net Change");
-                Outbal := "Net Change";
-                DFilter := '..' + Format(PostingDate);
-
-                DCustL.Reset();
-                DCustL.SetRange("Customer No.", Customer."No.");
-                DCustL.SetFilter("Posting Date", DFilter);
-                if DCustL.FindSet() then begin
-                    repeat
-                        if (DCustL."Transaction Type Code" = 'PENDUE') or (DCustL."Transaction Type Code" = 'PENPAID') then
-                            penBal += DCustL.Amount;
-                        if (DCustL."Transaction Type Code" = 'INTPAID') or (DCustL."Transaction Type Code" = 'INTDUE') then
-                            intBal += DCustL.Amount;
-                        if (DCustL."Transaction Type Code" = 'NEWLOAN') or (DCustL."Transaction Type Code" = 'PPAID') then
-                            princBal += DCustL.Amount;
-                    until DCustL.Next() = 0;
-                end;
-
-                defaulterLoanNo := BOSAManagement.createDefaulterloanAccount(Outbal, Member."Phone No.");
-                IF LoanApplication.GET(defaulterLoanNo) THEN BEGIN
-                    // clear interest
-                    GlobalManagement.CreateJournal(LoanApplicationSetup."Penalty Template Name", LoanApplicationSetup."Penalty Batch Name", 'REC-' + Format(Today), "No.", postingDate, AccountTypeEnum::Customer, "No.", 'loan Recovered Mob ' + "No.", -intBal, LoanProductType."Interest Due Posting Group",
-                    'INTPAID', SourceCodeSetup.Loan, "Global Dimension 1 Code", BalAccountTypeEnum::"G/L Account", '', AppliesToDocTypeEnum::" ", '');
-                    //recover penalty
-                    GlobalManagement.CreateJournal(LoanApplicationSetup."Penalty Template Name", LoanApplicationSetup."Penalty Batch Name", 'REC-' + Format(Today), "No.", postingDate, AccountTypeEnum::Customer, "No.", 'Penalty Recovered ' + "No.", -penBal, LoanProductType."Penalty Due Posting Group",
-                    'PENPAID', SourceCodeSetup.Loan, "Global Dimension 1 Code", BalAccountTypeEnum::"G/L Account", '', AppliesToDocTypeEnum::" ", '');
-                    //recover principal
-                    GlobalManagement.CreateJournal(LoanApplicationSetup."Penalty Template Name", LoanApplicationSetup."Penalty Batch Name", 'REC-' + Format(Today), "No.", postingDate, AccountTypeEnum::Customer, "No.", 'Principal Recovered ' + "No.", -princBal, LoanProductType."Loan Posting Group",
-                    'PPAID', SourceCodeSetup.Loan, "Global Dimension 1 Code", BalAccountTypeEnum::"G/L Account", '', AppliesToDocTypeEnum::" ", '');
-                    //newLoan
-                    GlobalManagement.CreateJournal(LoanApplicationSetup."Penalty Template Name", LoanApplicationSetup."Penalty Batch Name", 'REC-' + Format(Today), "No.", postingDate, AccountTypeEnum::Customer, defaulterLoanNo, 'Defaulter Recovery ' + "No.", Outbal, '',
-                    'NEWLOAN', SourceCodeSetup.Loan, LoanApplication."Global Dimension 1 Code", BalAccountTypeEnum::"G/L Account", '', AppliesToDocTypeEnum::" ", '');
-                end;
-            end
-        end;
-    end;
-}
- */
+ProcessCheckOffsExcess(CheckOffHeader : Record "Check Off Header")
+// IF CONFIRM('Do you want to post the check Off?') THEN BEGIN
+  WITH CheckOffHeader DO BEGIN
+    ClearLines;
+    TESTFIELD("Posting Date");
+    PostingDate := "Posting Date";
+    PostingLogs.RESET;
+    PostingLogs.SETRANGE("Payout No","No.");
+    IF PostingLogs.FINDSET THEN BEGIN
+      PostingLogs.DELETEALL;
+    END;
+    Bosa.ClearJournal(CBSSetup."Check Off Template Name",CBSSetup."Check Off Batch Name");
+    TransactionTypes.GET("Payment Type");
+    Window.OPEN('Processing checkoff\Current:###1#######\Total:###2#######\Progress:@@@3@@@@@@@');
+    LineNo := 0;
+    i := 0;
+    j := 0;
+    ExcessMessage := '';
+    CheckOffLines.RESET;
+    CheckOffLines.SETRANGE("Document No.","No.");
+    IF CheckOffLines.FINDSET THEN BEGIN
+      j := CheckOffLines.COUNT;
+      REPEAT
+        CheckOffLines."Excess Amount" := 0;
+        CheckOffLines.MODIFY;
+         
+        i += 1;
+        Window.UPDATE(1,i);
+        Window.UPDATE(2,j);
+        Window.UPDATE(3,((i/j) * 10000) DIV 1);
+        IF CheckOffLines."Posted To Suspense" = FALSE THEN BEGIN
+          CBSSetup.GET();
+          AccountType := AccountType::"G/L Account";
+          ExcessAmount := 0;
+          GetMemberAccounts(CheckOffLines."Member No.",DepositAcc,SharesAcc,HouseDeposit,HouseShareCap,Holiday,Unallocated,Registration,HousingEntrance);
+          // Temp buffer for details
+          TempGenJnlLine.RESET;
+          TempGenJnlLine.DELETEALL;
+          TotalDetails := 0;
+          DistRec.RESET;
+          DistRec.SETRANGE("Document No.","No.");
+          DistRec.SETRANGE("Member No.",CheckOffLines."Member No.");
+          IF DistRec.FINDSET THEN BEGIN
+            REPEAT
+              // Deposit Contributions
+              IF DistRec."Deposit Amount" > 0 THEN BEGIN
+                IF Member.GET(CheckOffLines."Member No.") THEN BEGIN
+                  IF Member."Registration Fee paid" = FALSE THEN BEGIN
+                    IF Registration = '' THEN
+                      Registration := CreateDefaultAccount(CheckOffLines."Member No.",AccType::Registration);
+                    RoundedAmt := ROUND(CBSSetup."Registration Fee", 0.01);
+                    CreateJournalLineTemp(TempGenJnlLine,"No.",'Entrance Fees Member No '+CheckOffLines."Member No."+' '+CheckOffLines."Cheque No",AccountType::Vendor,Registration,
+                                      "Control Account Type",'',-RoundedAmt,'',PaymentType::Cheque,TType::"Registration Fee",PostingDate,CheckOffLines."Member No.");
+                    TotalDetails += RoundedAmt;
+                    DistRec."Deposit Amount" -= RoundedAmt;
+                  END;
+                END;
+                IF DistRec."Deposit Amount" > 0 THEN BEGIN
+                  ShareCapBalance := GetAccBalance(Member."No.",'02');
+                  IF ShareCapBalance > 0 THEN BEGIN
+                    IF ShareCapBalance > DistRec."Deposit Amount" THEN ShareCapBalance := DistRec."Deposit Amount";
+                    RoundedAmt := ROUND(ShareCapBalance, 0.01);
+                    IF SharesAcc = '' THEN
+                      SharesAcc := CreateDefaultAccount(CheckOffLines."Member No.",AccType::"Share Capital");
+                    CreateJournalLineTemp(TempGenJnlLine,"No.",'Shares Contribution Member No '+CheckOffLines."Member No."+' '+CheckOffLines."Cheque No",AccountType::Vendor,SharesAcc,
+                                      "Control Account Type",'',-RoundedAmt,'',PaymentType::Cheque,TType::"Shares Contributions",PostingDate,CheckOffLines."Member No.");
+                    TotalDetails += RoundedAmt;
+                    DistRec."Deposit Amount" -= RoundedAmt;
+                  END;
+                END;
+                IF DistRec."Deposit Amount" > 0 THEN BEGIN
+                  IF DepositAcc = '' THEN
+                    DepositAcc := CreateDefaultAccount(CheckOffLines."Member No.",AccType::Deposit);
+                  RoundedAmt := ROUND(DistRec."Deposit Amount", 0.01);
+                  CreateJournalLineTemp(TempGenJnlLine,"No.",'Deposit Contribution Member No '+CheckOffLines."Member No."+' '+CheckOffLines."Cheque No",AccountType::Vendor,DepositAcc,
+                                    "Control Account Type",'',-RoundedAmt,'',PaymentType::Cheque,TType::"Deposit Contribution",PostingDate,CheckOffLines."Member No.");
+                  TotalDetails += RoundedAmt;
+                END;
+              END;
+              // Holiday Savings
+              IF DistRec.Holiday > 0 THEN BEGIN
+                IF Holiday = '' THEN
+                  Holiday := CreateDefaultAccount(CheckOffLines."Member No.",AccType::Holiday);
+                RoundedAmt := ROUND(DistRec.Holiday, 0.01);
+                CreateJournalLineTemp(TempGenJnlLine,"No.",'Holiday Savings Member No '+CheckOffLines."Member No."+' '+CheckOffLines."Cheque No",AccountType::Vendor,Holiday,
+                                  "Control Account Type",'',-RoundedAmt,'',PaymentType::Cheque,TType::" ",PostingDate,CheckOffLines."Member No.");
+                TotalDetails += RoundedAmt;
+              END;
+              // Housing Contributions
+              IF DistRec."Housing Amount" > 0 THEN BEGIN
+                HousingBal := DistRec."Housing Amount";
+                IF Member.GET(CheckOffLines."Member No.") THEN BEGIN
+                  IF Member."Housing Entrance Paid" = FALSE THEN BEGIN
+                    IF HousingEntrance = '' THEN
+                      HousingEntrance := CreateDefaultAccount(CheckOffLines."Member No.",AccType::"Housing Entrance");
+                    RoundedAmt := ROUND(CBSSetup."Housing Entrance Fee", 0.01);
+                    CreateJournalLineTemp(TempGenJnlLine,"No.",'Housing Entrance Fees Member No '+CheckOffLines."Member No."+' '+CheckOffLines."Cheque No",AccountType::Vendor,HousingEntrance,
+                                      "Control Account Type",'',-RoundedAmt,'',PaymentType::Cheque,TType::"Housing Entrance Fee",PostingDate,CheckOffLines."Member No.");
+                    TotalDetails += RoundedAmt;
+                    HousingBal -= RoundedAmt;
+                  END;
+                  IF HousingBal > 0 THEN BEGIN
+                    HShareCapBalance := GetAccBalance(Member."No.",'04');
+                    IF HShareCapBalance > 0 THEN BEGIN
+                      IF HShareCapBalance > HousingBal THEN HShareCapBalance := HousingBal;
+                      RoundedAmt := ROUND(HShareCapBalance, 0.01);
+                      IF HouseShareCap = '' THEN
+                        HouseShareCap := CreateDefaultAccount(CheckOffLines."Member No.",AccType::"Housing Share Capital");
+                      CreateJournalLineTemp(TempGenJnlLine,"No.",'Housing ShareCap Member No '+CheckOffLines."Member No."+' '+CheckOffLines."Cheque No",AccountType::Vendor,HouseShareCap,
+                                        "Control Account Type",'',-RoundedAmt,'',PaymentType::Cheque,TType::"Housing Share Capital",PostingDate,CheckOffLines."Member No.");
+                      TotalDetails += RoundedAmt;
+                      HousingBal -= RoundedAmt;
+                    END;
+                  END;
+                  IF HousingBal > 0 THEN BEGIN
+                    IF HouseDeposit = '' THEN
+                      HouseDeposit := CreateDefaultAccount(CheckOffLines."Member No.",AccType::"Housing Deposit");
+                    RoundedAmt := ROUND(HousingBal, 0.01);
+                    CreateJournalLineTemp(TempGenJnlLine,"No.",'Housing Contribution Member No '+CheckOffLines."Member No."+' '+CheckOffLines."Cheque No",AccountType::Vendor,HouseDeposit,
+                                      "Control Account Type",'',-RoundedAmt,'',PaymentType::Cheque,TType::"Housing Contribution",PostingDate,CheckOffLines."Member No.");
+                    TotalDetails += RoundedAmt;
+                  END;
+                END;
+              END;
+              // Loan Interest and Principal from Distribution
+              IF (DistRec."Interest Amount" > 0) OR (DistRec."Principal Amount" > 0) THEN BEGIN
+                IF DistRec."Loan No." <> '' THEN BEGIN
+                  Loan.GET(DistRec."Loan No.");
+                 
+                  IF LProd.GET(DistRec."Loan Product Type") THEN BEGIN
+                    IF LProd.Code <> 'LP022' THEN BEGIN // Exempting mobile loans from checkoff posting
+                      ValidAmount := ROUND(DistRec."Interest Amount", 0.01);
+                      IF ValidAmount > 0 THEN BEGIN
+                          {CreateJournalLine("No.",'Loan Interest Due Member No '+DistRec."Loan No."+' '+CheckOffLines."Member No.",AccountType::Customer,DistRec."Loan No.",BalAccountType::"G/L Account",LProd."Interest Income Account",
+                                            ROUND(ValidAmount),'',PaymentType::Cheque,TType::"Interest Due",PostingDate,CheckOffLines."Member No.");}
+                          CreateJournalLineTemp(TempGenJnlLine,"No.",'Loan Interest Paid Member No '+DistRec."Loan No."+' '+CheckOffLines."Member No."+' Cheq-'+CheckOffLines."Cheque No",AccountType::Customer,DistRec."Loan No.",
+                                            BalAccountType::"G/L Account",ControlAcc,-ValidAmount,'',PaymentType::Cheque,TType::"Interest Paid",PostingDate,CheckOffLines."Member No.");
+                          TotalDetails += ValidAmount;
+                        END ELSE IF ABS(ValidAmount) > 0 THEN BEGIN
+                          // Route tiny amounts to excess
+                          CheckOffLines."Excess Amount" += ValidAmount;
+                        END ELSE BEGIN
+                          // Log error for invalid interest amount
+                          PostingLogs.RESET;
+                          IF PostingLogs.FINDLAST THEN BEGIN
+                            PostEntryNo := PostingLogs."Entry No";
+                          END;
+                          PostingLogs.INIT;
+                          PostingLogs."Entry No" := PostEntryNo + 1000;
+                          PostingLogs."Member No" := CheckOffLines."Member No.";
+                          PostingLogs."Loan No" := DistRec."Loan No.";
+                          PostingLogs."Payout No" := "No.";
+                          PostingLogs.Amount := DistRec."Interest Amount";
+                          PostingLogs.Description := 'Invalid Interest Amount for Loan ' + DistRec."Loan No.";
+                          PostingLogs."Allocation Date" := PostingDate;
+                          PostingLogs."Unallocated Amount" := DistRec."Interest Amount";
+                          PostingLogs."Error Code" := 3;
+                          PostingLogs.INSERT;
+                          ExcessMessage += STRSUBSTNO('Member %1, Loan No: %2, Invalid Interest Amount: %3\\',
+                                                      CheckOffLines."Member No.", DistRec."Loan No.", DistRec."Interest Amount");
+                       
+                      END;
+                      IF DistRec."Principal Amount" > 0 THEN BEGIN
+                        RoundedAmt := ROUND(DistRec."Principal Amount", 0.01);
+                        CreateJournalLineTemp(TempGenJnlLine,"No.",'Loan Principal Payment Loan No: '+DistRec."Loan No."+' Member No: '+CheckOffLines."Member No.",AccountType::Customer,DistRec."Loan No.",BalAccountType::"G/L Account",'',
+                                          -RoundedAmt,'',PaymentType::Cheque,TType::Repayment,PostingDate,CheckOffLines."Member No.");
+                        TotalDetails += RoundedAmt;
+                      END;
+                    END;
+                  END;
+                END;
+              END;
+            UNTIL DistRec.NEXT = 0;
+          END;
+          // Handle Excess Amount
+          ExcessAmt := ROUND(CheckOffLines."Received Amount" - (CheckOffLines.Holiday + CheckOffLines."Deposit Contribution" + CheckOffLines."Housing Contribution" + CheckOffLines."Loan Amount"), 0.01);
+          IF ExcessAmt <> 0 THEN BEGIN
+            CheckOffLines."Excess Amount" := ExcessAmt;
+            CheckOffLines.MODIFY;
+            ExcessMessage += STRSUBSTNO('Member %1, Payroll No: %2, Excess Amount: %3',
+                                        CheckOffLines."Member No.", CheckOffLines."Payroll No.", ExcessAmt);
+            IF CheckOffHeader.AllowGeneralExcess THEN BEGIN
+              ProcessMembLoansExcess(CheckOffLines."Member No.",ExcessAmt,"No.",PostingDate,"Control Account");
+            END ELSE BEGIN
+              PostingLogs.RESET;
+              IF PostingLogs.FINDLAST THEN BEGIN
+                PostEntryNo := PostingLogs."Entry No";
+              END;
+              PostingLogs.INIT;
+              PostingLogs."Entry No" := PostEntryNo + 1000;
+              PostingLogs."Member No" := CheckOffLines."Member No.";
+              PostingLogs."Payout No" := "No.";
+              PostingLogs.Amount := ExcessAmt;
+              PostingLogs.Description := 'Member Unallocated Excess Amount';
+              PostingLogs."Allocation Date" := PostingDate;
+              PostingLogs."Unallocated Amount" := ExcessAmt;
+              PostingLogs."Error Code" := 1;
+              PostingLogs.INSERT;
+            END;
+          END;
+          // Now create control line with sum of details
+          CreateJournalLine("No.",FORMAT(Description)+' Member '+CheckOffLines."Member No.",AccountType,"Control Account",BalAccountType::"G/L Account",'',
+                            ROUND(TotalDetails, 0.01),'',PaymentType::Cash,TType::" ",PostingDate,CheckOffLines."Member No.");
+          // Copy temp lines to real journal
+          IF TempGenJnlLine.FINDSET THEN REPEAT
+            CreateJournalLineFromTemp(TempGenJnlLine); // Assume a helper to copy
+          UNTIL TempGenJnlLine.NEXT = 0;
+        END;
+      UNTIL CheckOffLines.NEXT = 0;
+    END;
+    Window.CLOSE;
+    CBSSetup.GET;
+    IF PostJournal(CBSSetup."Check Off Template Name",CBSSetup."Check Off Batch Name") THEN BEGIN
+      Posted := TRUE;
+      "Posted At" := TIME;
+      "Posted On" := TODAY;
+      "Posted By" := USERID;
+      Status := Status::Approved;
+      "Status 2" := "Status 2"::Posted;
+      MODIFY;
+      UpdateMembers;
+    END;
+    IF "Excess Amounts" OR (ExcessMessage <> '') THEN BEGIN
+      MESSAGE('Checkoff posted with excess amounts or errors:\\%1', ExcessMessage);
+    END;
+  END;
+
+ProcessMembLoansExcess(MemberNo : Code[10];LoanAmount : Decimal;HeaderNo : Code[10];Pdate : Date;ControlAcc : Code[10])
+RunBal := LoanAmount;
+LoanAmount2 := 0;
+CBSSetup.GET();
+Loan.RESET;
+Loan.SETRANGE(Loan."Member No.",MemberNo);
+Loan.SETRANGE("Non-Checkoff",FALSE);
+Loan.SETFILTER("Outstanding Balance",'>%1',0);
+Loan.SETCURRENTKEY("Disbursal Date");
+IF Loan.FINDSET THEN BEGIN
+  REPEAT
+    IF RunBal > 0 THEN BEGIN
+      LoanAcc := Loan."No.";
+      // Interest Allocation
+      InterestAmount := 0;
+      ProcessMemberInterestExcess(MemberNo,Loan."Loan Product Type",RunBal,HeaderNo,Pdate,ControlAcc,Loan."No.");
+      RoundedRunBal := ROUND(RunBal, 0.01);
+      IF RoundedRunBal > 0 THEN BEGIN
+        CreateJournalLineTemp(TempGenJnlLine, HeaderNo,'Loan Principal Payment Loan No: '+LoanAcc+' Member No: '+Loan."Member No.",AccountType::Customer,LoanAcc,BalAccountType::"G/L Account",'',
+                          -RoundedRunBal,'',PaymentType::Cheque,TType::Repayment,Pdate,Loan."Member No.");
+        RunBal -= RoundedRunBal;
+      END;
+    END;
+  UNTIL Loan.NEXT = 0;
+END;
+IF ABS(RunBal) > 0 THEN BEGIN
+  PostingLogs.RESET;
+  IF PostingLogs.FINDLAST THEN BEGIN
+    PostEntryNo := PostingLogs."Entry No";
+  END;
+  PostingLogs.INIT;
+  PostingLogs."Entry No" := PostEntryNo + 1000;
+  PostingLogs."Member No" := MemberNo;
+  PostingLogs."Loan No" := '';
+  PostingLogs.Amount := RunBal;
+  PostingLogs.Description := 'Member Unallocated Excess Loan Amount';
+  PostingLogs."Allocation Date" := Pdate;
+  PostingLogs."Unallocated Amount" := RunBal;
+  PostingLogs."Payout No" := HeaderNo;
+  PostingLogs."Error Code" := 1;
+  PostingLogs.INSERT;
+  LoanAmount2 := RunBal;
+END;
+
+LOCAL ProcessMemberInterestExcess(MemberNo : Code[10];LProduct : Code[10];IntAmount : Decimal;HeaderNo : Code[10];Pdate : Date;ControlAcc : Code[10];Cheque : Code[10])
+RunBal := IntAmount;
+LoanAmount2 := 0;
+CBSSetup.GET();
+Loan.RESET;
+Loan.SETRANGE(Loan."Member No.",MemberNo);
+Loan.SETRANGE(Loan."Loan Product Type",LProduct);
+Loan.SETRANGE(Loan.Posted,TRUE);
+Loan.SETFILTER("Outstanding Balance",'>%1',0);
+IF Loan.FINDFIRST THEN BEGIN
+  LoanAcc := Loan."No.";
+  IF RunBal > 0 THEN BEGIN
+    InterestAmount := RunBal;
+    RoundedInterest := ROUND(InterestAmount, 0.01);
+    IF RoundedInterest > 0 THEN BEGIN
+      LProd.GET(Loan."Loan Product Type");
+      {CreateJournalLine(HeaderNo,'Loan Interest Due Member No '+LoanAcc+' '+Loan."Member No.",AccountType::Customer,LoanAcc,BalAccountType::"G/L Account",LProd."Interest Income Account",
+                        ROUND(InterestAmount),'',PaymentType::Cheque,TType::"Interest Due",Pdate,Loan."Member No.");}
+      CreateJournalLineTemp(TempGenJnlLine,HeaderNo,'Loan Interest Paid Member No '+LoanAcc+' '+Loan."Member No."+' Cheq-'+Cheque,AccountType::Customer,LoanAcc,BalAccountType::"G/L Account",ControlAcc,
+                        -RoundedInterest,'',PaymentType::Cheque,TType::"Interest Paid",Pdate,Loan."Member No.");
+      LoanAmount2 := RoundedInterest;
+      RunBal -= RoundedInterest;
+    END;
+  END;
+END;
+IF ABS(RunBal) > 0 THEN BEGIN
+  PostingLogs.RESET;
+  IF PostingLogs.FINDLAST THEN BEGIN
+    PostEntryNo := PostingLogs."Entry No";
+  END;
+  PostingLogs.INIT;
+  PostingLogs."Entry No" := PostEntryNo + 1000;
+  PostingLogs."Member No" := MemberNo;
+  PostingLogs."Loan No" := LoanAcc;
+  PostingLogs.Amount := RunBal;
+  PostingLogs.Description := 'Member Unallocated Interest Amount';
+  PostingLogs."Allocation Date" := Pdate;
+  PostingLogs."Unallocated Amount" := RunBal;
+  PostingLogs."Payout No" := HeaderNo;
+  PostingLogs."Loan Product" := LProduct;
+  PostingLogs."Error Code" := 1;
+  PostingLogs.INSERT;
+  LoanAmount2 := RunBal;
+END;
+
+PopulateExcess Amount Distribution - OnAction()
+TESTFIELD("Posting Date");
+COMMIT;
+IF NOT CONFIRM('This will (re)create default distribution rows. Continue?') THEN
+  EXIT;
+// AllowOverwrite := CheckoffHeader.AllowOverwriteDistribution;
+// DistribRec.ClearDocumentDistributions(DocumentNo, AllowOverwrite);
+DistribRec.PopulateDistributionsFromUpload(Rec."No.", Rec);
+CheckOffLine.RESET;
+CheckOffLine.SETRANGE("Document No.", Rec."No.");
+IF CheckOffLine.FINDSET THEN
+  REPEAT
+    IF CheckOffLine."Excess Amount" > 0 THEN
+      DistribRec.DistributeExcessForLine(Rec."No.", CheckOffLine."Line No.", Rec.AllowGeneralExcess);
+  UNTIL CheckOffLine.NEXT = 0;
+IF Rec.AllowGeneralExcess THEN BEGIN
+  Rec."Populate Excess" := TRUE;
+  Rec.MODIFY;
+END;
+MESSAGE('Distribution table populated. Open "View Amount Distribution" to review/edit before posting.');
+
+PopulateDistributionsFromUpload(DocumentNo : Code[20];HeaderRec : Record "Check Off Header")
+AllowOverwrite := HeaderRec.AllowOverwriteDistribution;
+ClearDocumentDistributions(DocumentNo, TRUE);
+UploadRec.RESET();
+UploadRec.SETRANGE("Document No.", DocumentNo);
+IF NOT UploadRec.FINDSET() THEN
+    EXIT;
+REPEAT
+    MemberRec.RESET();
+    MemberRec.SETRANGE("Payroll No.", UploadRec."Payroll No.");
+    IF NOT MemberRec.FINDFIRST() THEN
+        ERROR('Member %1 with payroll no %2 does not exist (Upload entry)', UploadRec."Member Name", UploadRec."Payroll No.");
+    CheckOffLineRec.RESET();
+    CheckOffLineRec.SETRANGE("Document No.", DocumentNo);
+    CheckOffLineRec.SETRANGE("Payroll No.", UploadRec."Payroll No.");
+    IF NOT CheckOffLineRec.FINDFIRST() THEN BEGIN
+        CheckOffLineRec.INIT();
+        CheckOffLineRec."Document No." := DocumentNo;
+        CheckOffLineRec."Line No." := GetNextCheckOffLineNo(DocumentNo);
+        CheckOffLineRec."Payroll No." := UploadRec."Payroll No.";
+        CheckOffLineRec."Member No." := MemberRec."No.";
+        CheckOffLineRec."Member Name" := MemberRec."Full Name";
+        CheckOffLineRec."Deposit Contribution" := ROUND(UploadRec."Deposit Sacco", 0.01);
+        CheckOffLineRec."Loan Amount" := ROUND(UploadRec."Loan Amount", 0.01);
+        CheckOffLineRec."Housing Contribution" := ROUND(UploadRec."Housing Contribution", 0.01);
+        CheckOffLineRec.Holiday := ROUND(UploadRec.Holiday, 0.01);
+        CheckOffLineRec."Received Amount" := ROUND(UploadRec."Received Amount", 0.01);
+        CheckOffLineRec.INSERT();
+    END;
+    DistributionRec.RESET();
+    DistributionRec.SETRANGE("Document No.", DocumentNo);
+    DistributionRec.SETRANGE("Member No.", CheckOffLineRec."Member No.");
+    IF DistributionRec.FINDSET() THEN
+        DistributionRec.DELETEALL();
+    DistributeForMember(DocumentNo, CheckOffLineRec."Line No.", CheckOffLineRec."Member No.",
+                        CheckOffLineRec."Deposit Contribution", CheckOffLineRec."Housing Contribution",
+                        CheckOffLineRec.Holiday, CheckOffLineRec."Loan Amount",
+                        HeaderRec.AllowOverwriteDistribution, HeaderRec."Posting Date");
+UNTIL UploadRec.NEXT() = 0;
+DistributionRec.UpdateCheckOffLinesFromDistribution(DocumentNo);
+
+UpdateCheckOffLinesFromDistribution(DocumentNo : Code[20])
+LineRec.RESET();
+LineRec.SETRANGE("Document No.", DocumentNo);
+IF NOT LineRec.FINDSET() THEN
+    EXIT;
+REPEAT
+    DepositTotal := 0;
+    HousingTotal := 0;
+    HolidayTotal := 0;
+    LoanTotal := 0;
+    ExcessTotal := 0;
+    ActualAmount := 0;
+    DistRec.RESET();
+    DistRec.SETRANGE("Document No.", DocumentNo);
+    DistRec.SETRANGE("Line No.", LineRec."Line No.");
+    IF DistRec.FINDSET() THEN
+        REPEAT
+            DistRec."Deposit Amount" := ROUND(DistRec."Deposit Amount", 0.01);
+            DistRec."Housing Amount" := ROUND(DistRec."Housing Amount", 0.01);
+            DistRec.Holiday := ROUND(DistRec.Holiday, 0.01);
+            DistRec."Interest Amount" := ROUND(DistRec."Interest Amount", 0.01);
+            DistRec."Principal Amount" := ROUND(DistRec."Principal Amount", 0.01);
+            DistRec.MODIFY;
+            DepositTotal += DistRec."Deposit Amount";
+            HousingTotal += DistRec."Housing Amount";
+            LoanTotal += DistRec."Interest Amount" + DistRec."Principal Amount";
+            HolidayTotal += DistRec.Holiday;
+            ActualAmount := DepositTotal + HousingTotal + LoanTotal + HolidayTotal;
+            
+            {IF DistRec."Loan No." = '' THEN
+                HolidayTotal += DistRec."Distributed Amount";}
+        UNTIL DistRec.NEXT() = 0;
+    LineRec."Deposit Contribution" := ROUND(DepositTotal, 0.01);
+    LineRec."Housing Contribution" := ROUND(HousingTotal, 0.01);
+    LineRec."Loan Amount" := ROUND(LoanTotal, 0.01);
+    LineRec.Holiday := ROUND(HolidayTotal, 0.01);
+    // LineRec."Received Amount" := DepositTotal + HousingTotal + HolidayTotal + LoanTotal;
+    LineRec."Excess Amount" := ROUND(LineRec."Received Amount" - ActualAmount, 0.01);
+// MESSAGE('Member %1 has excess of %2', LineRec."Member No.", LineRec."Excess Amount");
+   
+    LineRec.MODIFY();
+    // ExcessAmount := CalculateMemberExcessAmount(DocumentNo, LineRec."Member No.");
+    // Optional: Display message if there's excess
+    {IF ExcessAmount > 0 THEN
+        MESSAGE('Member %1 has excess of %2', LineRec."Member No.", FORMAT(ExcessAmount));}
+UNTIL LineRec.NEXT() = 0;
+MESSAGE('Check Off Lines updated successfully from distribution.');
+
+DistributeExcessForLine(DocumentNo : Code[20];LineNo : Integer;AllowGeneralExcess : Boolean)
+    ChLine.RESET;
+    ChLine.SETRANGE("Document No.", DocumentNo);
+    ChLine.SETRANGE("Line No.", LineNo);
+    IF NOT ChLine.FINDFIRST THEN
+        EXIT;
+    TotalExcess := ROUND(ChLine."Excess Amount", 0.01);
+    IF TotalExcess <= 0 THEN
+        EXIT;
+    Dist.RESET;
+    Dist.SETRANGE("Document No.", DocumentNo);
+    Dist.SETRANGE("Line No.", LineNo);
+    IF NOT AllowGeneralExcess THEN
+        Dist.SETRANGE("Distribute Excess", TRUE);
+    IF NOT Dist.FINDFIRST THEN
+        ERROR(
+            'Mark distribute excess to yes before populating the amount.'
+        );
+    Dist.RESET;
+    Dist.SETRANGE("Document No.", DocumentNo);
+    Dist.SETRANGE("Line No.", LineNo);
+    Dist.SETFILTER("Loan No.", '%1', 'EXCESS');
+    IF Dist.FINDFIRST THEN
+        REPEAT
+            Dist.DELETE;
+        UNTIL Dist.NEXT = 0;
+    Dist.RESET;
+    Dist.SETRANGE("Document No.", DocumentNo);
+    Dist.SETRANGE("Line No.", LineNo);
+    Dist.SETFILTER("Loan No.", '<>%1', '');
+    Dist.SETFILTER("Loan Product Type",'<>%1','LP022');
+    IF NOT AllowGeneralExcess THEN
+        Dist.SETRANGE("Distribute Excess", TRUE);
+    IF Dist.FINDLAST THEN BEGIN
+        Dist."Principal Amount" := ROUND(Dist."Principal Amount" + TotalExcess, 0.01);
+        Dist."Distributed Amount" := ROUND(Dist."Distributed Amount" + TotalExcess, 0.01);
+        Dist."Excess Amount" := ROUND(TotalExcess, 0.01);
+        Dist.MODIFY(TRUE);
+    END ELSE BEGIN
+        DepositDist.RESET;
+        DepositDist.SETRANGE("Document No.", DocumentNo);
+        DepositDist.SETRANGE("Line No.", LineNo);
+        DepositDist.SETFILTER("Loan No.", '%1', '');
+        DepositDist.SETFILTER("Deposit Amount", '>%1', 0);
+        IF DepositDist.FINDFIRST THEN BEGIN
+            DepositDist."Deposit Amount" := ROUND(DepositDist."Deposit Amount" + TotalExcess, 0.01);
+            DepositDist."Distributed Amount" := ROUND(DepositDist."Distributed Amount" + TotalExcess, 0.01);
+            DepositDist."Excess Amount" := 0;
+            DepositDist.MODIFY(TRUE);
+        END ELSE
+            ERROR('No loan or deposit found to allocate excess for line %1.', LineNo);
+    END;
