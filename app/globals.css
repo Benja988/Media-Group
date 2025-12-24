@@ -2,19 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-/* =========================================================
-   BASE TOKENS (Design System Foundation)
-   ========================================================= */
+
 @layer base {
   :root {
     /* Dark theme (default) */
-    --background: 2 6 23;
+    --background: 7 19 31;
     --foreground: 226 232 240;
 
     --card: 15 23 42;
     --card-foreground: 226 232 240;
 
-    --primary: 37 99 235;
+    /* Primary color: #07131F -> rgb(7 19 31) */
+    --primary: 7 19 31;
+    --color-primary: 7 19 31;
     --primary-foreground: 255 255 255;
 
     --muted: 30 41 59;
@@ -35,7 +35,8 @@
     --card: 255 255 255;
     --card-foreground: 15 23 42;
 
-    --primary: 14 165 233;
+    /* Keep primary consistent in light mode */
+    --primary: 7 19 31;
     --primary-foreground: 255 255 255;
 
     --muted: 241 245 249;
@@ -44,40 +45,40 @@
     --border: 226 232 240;
   }
 
+  /* Make navbar bottom border use primary color in light mode */
+  html:not(.dark) .site-nav {
+    border-bottom-color: rgb(var(--primary));
+  }
+
+  /* --color-primary: hsl(210, 63%, 7%); Tetemeko Blue */
+
   /* Global border color consistency */
   * {
     @apply border-border;
   }
 
-  /* =========================================================
-     ROOT & BODY (Professional Defaults)
-     ========================================================= */
   html {
-    font-size: 16px;
+    font-size: 12px;
     line-height: 1.5;
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
 
+  .some-class {
+    color: hsl(var(--color-primary));
+    background: hsl(var(--color-primary));
+  }
+
   body {
     background-color: rgb(var(--background));
     color: rgb(var(--foreground));
 
-    font-family:
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      BlinkMacSystemFont,
-      "Segoe UI",
-      Roboto,
-      "Helvetica Neue",
-      Arial,
-      "Noto Sans",
-      sans-serif;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
 
-    font-size: 1rem;
-    font-weight: 400;
+    font-size: 12px;
+    font-weight: 500;
     line-height: 1.6;
     letter-spacing: -0.01em;
 
@@ -95,9 +96,7 @@
     background: rgba(var(--primary), 0.15);
   }
 
-  /* =========================================================
-     TYPOGRAPHY (Upwork hierarchy)
-     ========================================================= */
+
   h1 {
     @apply font-bold tracking-tight;
     font-size: clamp(2.25rem, 4vw, 3.5rem);
@@ -151,7 +150,8 @@
   }
 
   /* Lists */
-  ul, ol {
+  ul,
+  ol {
     padding-left: 1.25rem;
     margin-bottom: 1em;
   }
@@ -182,24 +182,43 @@
   }
 }
 
-/* =========================================================
-   COMPONENTS (Layout, Cards, Buttons)
-   ========================================================= */
 @layer components {
   /* Spacing scale */
-  .space-xxs { @apply space-y-1; }
-  .space-xs  { @apply space-y-2; }
-  .space-sm  { @apply space-y-4; }
-  .space-md  { @apply space-y-6; }
-  .space-lg  { @apply space-y-8; }
-  .space-xl  { @apply space-y-12; }
-  .space-xxl { @apply space-y-16 md:space-y-20; }
+  .space-xxs {
+    @apply space-y-1;
+  }
+  .space-xs {
+    @apply space-y-2;
+  }
+  .space-sm {
+    @apply space-y-4;
+  }
+  .space-md {
+    @apply space-y-6;
+  }
+  .space-lg {
+    @apply space-y-8;
+  }
+  .space-xl {
+    @apply space-y-12;
+  }
+  .space-xxl {
+    @apply space-y-16 md:space-y-20;
+  }
 
   /* Section padding */
-  .section-py-sm { @apply py-6 md:py-10; }
-  .section-py-md { @apply py-12 md:py-16; }
-  .section-py-lg { @apply py-16 md:py-24; }
-  .section-py-xl { @apply py-20 md:py-32; }
+  .section-py-sm {
+    @apply py-6 md:py-10;
+  }
+  .section-py-md {
+    @apply py-12 md:py-16;
+  }
+  .section-py-lg {
+    @apply py-16 md:py-24;
+  }
+  .section-py-xl {
+    @apply py-20 md:py-32;
+  }
 
   .section-px {
     @apply px-4 sm:px-6 md:px-8 lg:px-12;
@@ -237,9 +256,15 @@
     border-radius: var(--radius-lg);
   }
 
-  .card-padding-sm { @apply p-4 md:p-5; }
-  .card-padding-md { @apply p-6 md:p-8; }
-  .card-padding-lg { @apply p-8 md:p-12; }
+  .card-padding-sm {
+    @apply p-4 md:p-5;
+  }
+  .card-padding-md {
+    @apply p-6 md:p-8;
+  }
+  .card-padding-lg {
+    @apply p-8 md:p-12;
+  }
 
   /* Buttons */
   .btn-base {
@@ -255,11 +280,60 @@
   }
 }
 
-/* =========================================================
-   UTILITIES
-   ========================================================= */
+
 @layer utilities {
   .max-w-readable {
     max-width: 65ch;
+  }
+
+  /* Custom animations for Hero */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes gradient-shift {
+    0%, 100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 1s ease-out;
+  }
+
+  .animate-fade-in-delayed {
+    animation: fade-in 1s ease-out 0.3s both;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 1s ease-out;
+  }
+
+  .animate-slide-up-delayed {
+    animation: slide-up 1s ease-out 0.5s both;
+  }
+
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient-shift 3s ease infinite;
   }
 }

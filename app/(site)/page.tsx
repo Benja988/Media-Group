@@ -111,7 +111,7 @@ export default function HomePage() {
 
   return (
     <>
-      {/* <Hero /> */}
+      <Hero />
 
       {/* <LivePlayer
         featuredStations={featuredStations}
