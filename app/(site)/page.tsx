@@ -102,7 +102,7 @@ export default function HomePage() {
   ];
 
   useEffect(() => {
-    // Simulate station rotation
+    
     const interval = setInterval(() => {
       setCurrentStation((prev) => (prev + 1) % featuredStations.length);
     }, 10000);
@@ -111,9 +111,9 @@ export default function HomePage() {
 
   return (
     <>
-      <Hero />
+      {/* <Hero /> */}
 
-      <LivePlayer
+      {/* <LivePlayer
         featuredStations={featuredStations}
         currentStation={currentStation}
         setCurrentStation={setCurrentStation}
@@ -127,7 +127,7 @@ export default function HomePage() {
 
       <FeaturesSection features={features} />
 
-      <TopStationsCTA topStations={topStations} />
+      <TopStationsCTA topStations={topStations} /> */}
     </>
   );
 }
