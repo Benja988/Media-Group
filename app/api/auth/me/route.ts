@@ -18,12 +18,16 @@ export async function GET(req: Request) {
       return new Response(JSON.stringify({ error: "User not found" }), { status: 404 });
     }
 
+    const name = user.profile?.firstName && user.profile?.lastName
+      ? `${user.profile.firstName} ${user.profile.lastName}`
+      : user.profile?.firstName || user.profile?.lastName || user.email.split('@')[0];
+
     return new Response(
       JSON.stringify({
         data: {
           id: user._id,
           email: user.email,
-          name: user.name,
+          name,
           role: user.role,
           scope: user.scope || [],
         },

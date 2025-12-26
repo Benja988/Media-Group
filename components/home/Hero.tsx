@@ -257,8 +257,7 @@ export function Hero() {
                       className="w-1.5 rounded-t bg-gradient-to-t from-purple-500 via-blue-500 to-cyan-500"
                       style={{
                         height: `${Math.random() * 40 + 10}px`,
-                        animation: `spectrum ${1 + Math.random()}s ease-in-out infinite`,
-                        animationDelay: `${i * 0.05}s`,
+                        animation: `spectrum ${1 + Math.random()}s ease-in-out infinite ${i * 0.05}s`,
                       }}
                     />
                   ))}

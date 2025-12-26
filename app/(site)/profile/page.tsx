@@ -8,12 +8,12 @@ import {
   Settings, Edit2, Camera, MapPin, Globe, Link as LinkIcon,
   Bell, Shield, CreditCard, LogOut, Save, X
 } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, isAuthenticated, logout, updateProfile } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [isEditing, setIsEditing] = useState(false);

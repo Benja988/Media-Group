@@ -34,7 +34,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     async function fetchUser() {
       try {
-        const res = await fetch("/api/auth/me", { credentials: "include" });
+        const token = localStorage.getItem('accessToken');
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch("/api/auth/me", {
+          headers,
+          credentials: "include"
+        });
         if (!res.ok) {
           setUser(null);
         } else {
@@ -61,9 +69,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || "Login failed");
+    if (!res.ok) throw new Error(data.error || data.message || "Login failed");
 
-    setUser(data.data);
+    // Store tokens
+    if (data.accessToken) {
+      localStorage.setItem('accessToken', data.accessToken);
+    }
+    if (data.refreshToken) {
+      localStorage.setItem('refreshToken', data.refreshToken);
+    }
+
+    setUser(data.user);
     // isAuthenticated updates automatically due to useMemo
     window.location.href = ROUTES.HOME;
   };
@@ -85,11 +101,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // 🔹 Logout
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (refreshToken) {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
+      }
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
       setUser(null);
       window.location.href = ROUTES.HOME;
     } catch (err) {
       console.error("❌ Error logging out:", err);
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
       setUser(null);
       window.location.href = ROUTES.HOME;
     }

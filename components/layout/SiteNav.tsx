@@ -80,14 +80,14 @@ export default function SiteNav() {
                     {user.name?.[0]?.toUpperCase() || <UserIcon className="h-4 w-4" />}
                   </div>
                   <span className="hidden md:inline text-sm font-medium">
-                    {user.name.split(' ')[0] || 'Profile'}
+                    {user.name?.split(' ')[0] || 'Profile'}
                   </span>
                 </button>
                 
                 {profileDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-56 rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 py-2 z-50">
                     <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-                      <p className="text-sm font-semibold">{user.name}</p>
+                      <p className="text-sm font-semibold">{user.name || 'User'}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
                     </div>
                     
@@ -108,7 +108,18 @@ export default function SiteNav() {
                       <Settings className="h-4 w-4" />
                       Settings
                     </Link>
-                    
+
+                    {["super_admin", "group_admin", "station_admin"].includes(user.role) && (
+                      <Link
+                        href="/admin"
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
+                        onClick={() => setProfileDropdownOpen(false)}
+                      >
+                        <Settings className="h-4 w-4" />
+                        Admin Panel
+                      </Link>
+                    )}
+
                     <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
                     
                     <button
