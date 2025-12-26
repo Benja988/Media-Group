@@ -59,7 +59,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* Main Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Content Management</h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
@@ -71,6 +71,20 @@ export default function AdminDashboard() {
                     >
                         <Plus className="h-4 w-4 mr-2" />
                         Manage Content
+                    </Link>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Station Management</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                        Manage your radio and TV stations and their configurations.
+                    </p>
+                    <Link
+                        href="/admin/stations"
+                        className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Manage Stations
                     </Link>
                 </div>
 
