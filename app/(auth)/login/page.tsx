@@ -52,7 +52,7 @@ export default function LoginPage() {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.message || 'Login failed');
+        throw new Error(result.error || result.message || 'Login failed');
       }
 
       setSuccess('Login successful! Redirecting...');
