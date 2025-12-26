@@ -10,14 +10,41 @@ if (!JWT_SECRET) {
     "Missing JWT_SECRET environment variable. Set it in .env, .env.local, or export it before running."
   );
 }
+
+// Token expiration
 const JWT_EXPIRES_IN = "7d";
 
-export function signToken(payload: JWTPayload) {
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
-  });
+/**
+ * Sign a JWT token
+ * @param payload JWTPayload
+ * @returns token string
+ */
+export function signToken(payload: JWTPayload): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
+/**
+ * Verify a JWT token
+ * @param token JWT string
+ * @returns JWTPayload
+ * @throws Error if invalid or expired
+ */
 export function verifyToken(token: string): JWTPayload {
-  return jwt.verify(token, JWT_SECRET) as JWTPayload;
+  try {
+    return jwt.verify(token, JWT_SECRET) as JWTPayload;
+  } catch (err) {
+    throw new Error("Unauthorized"); // unified error for all invalid/expired tokens
+  }
+}
+
+/**
+ * Optional: helper to parse token from cookie string
+ */
+export function getTokenFromCookie(cookieHeader?: string): string | null {
+  if (!cookieHeader) return null;
+  const token = cookieHeader
+    .split("; ")
+    .find((c) => c.startsWith("token="))
+    ?.split("=")[1];
+  return token || null;
 }

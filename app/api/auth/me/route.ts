@@ -3,18 +3,35 @@ import { requireAuth } from "@/middleware/auth";
 import User from "@/lib/models/User";
 
 export async function GET(req: Request) {
-  await connectDB();
-  const payload = requireAuth(req);
+  try {
+    await connectDB();
 
-  const user = await User.findById(payload.sub).lean();
-  if (!user) {
-    return Response.json({ error: "User not found" }, { status: 404 });
+    // Extract payload from JWT / cookie
+    const payload = await requireAuth(req); // make sure requireAuth returns payload or throws
+
+    if (!payload?.sub) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
+    const user = await User.findById(payload.sub).lean();
+    if (!user) {
+      return new Response(JSON.stringify({ error: "User not found" }), { status: 404 });
+    }
+
+    return new Response(
+      JSON.stringify({
+        data: {
+          id: user._id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          scope: user.scope || [],
+        },
+      }),
+      { status: 200 }
+    );
+  } catch (err: any) {
+    console.error("❌ /api/auth/me error:", err.message || err);
+    return new Response(JSON.stringify({ error: err.message || "Unauthorized" }), { status: 401 });
   }
-
-  return Response.json({
-    id: user._id,
-    email: user.email,
-    role: user.role,
-    scope: user.scope,
-  });
 }

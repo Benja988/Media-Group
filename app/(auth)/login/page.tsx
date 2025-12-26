@@ -70,7 +70,7 @@ export default function LoginPage() {
       
       // Redirect to dashboard
       setTimeout(() => {
-        router.push('/dashboard');
+        router.push('/');
       }, 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');

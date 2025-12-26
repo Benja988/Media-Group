@@ -2,11 +2,16 @@ import { verifyToken } from "@/lib/auth/token";
 import { JWTPayload } from "@/types/auth";
 
 export function requireAuth(req: Request): JWTPayload {
-    const auth = req.headers.get("authorization");
-    if (!auth) {
-        throw new Error("Unauthorized");
-    }
+  
+  const cookie = req.headers.get("cookie") || "";
+  const token = cookie
+    .split("; ")
+    .find((c) => c.startsWith("token="))
+    ?.split("=")[1];
 
-    const token = auth.replace("Bearer ", "");
-    return verifyToken(token);
+  if (!token) {
+    throw new Error("Unauthorized");
+  }
+
+  return verifyToken(token);
 }
