@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { ThemeProvider } from "@/context/ThemeContext";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -30,13 +30,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body
-        className="
-          min-h-screen
-          bg-background
-          text-foreground
-          antialiased
-          font-sans
-        "
+        className="min-h-screen bg-background text-foreground font-sans"
       >
         <ThemeProvider>
           {children}

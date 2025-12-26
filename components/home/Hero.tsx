@@ -13,12 +13,12 @@ export function Hero() {
         <div className="absolute -top-40 -left-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-float-slow" />
         <div className="absolute top-60 -right-40 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-float" />
         <div className="absolute -bottom-40 left-1/4 w-72 h-72 bg-pink-500/10 rounded-full blur-3xl animate-float-slower" />
-        
+
         {/* Grid Pattern */}
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] opacity-50" />
       </div>
 
-      <div className="section-py-xl relative z-10">
+      <div className="section-py-md relative z-10">
         <div className="container-width">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             {/* Left Content */}
@@ -53,7 +53,7 @@ export function Hero() {
                 </h1>
 
                 <p className="text-xl text-gray-600 dark:text-gray-300 max-w-2xl leading-relaxed">
-                  Studio-grade audio, AI-powered analytics, and seamless content management 
+                  Studio-grade audio, AI-powered analytics, and seamless content management
                   for forward-thinking media groups and independent broadcasters.
                 </p>
               </div>
@@ -127,7 +127,7 @@ export function Hero() {
                   </h3>
                   <span className="text-sm text-purple-600 dark:text-purple-400">Starting at $49/mo</span>
                 </div>
-                
+
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
                     { icon: Headphones, label: 'Studio Setup', color: 'from-blue-500 to-cyan-500' },
@@ -194,10 +194,10 @@ export function Hero() {
                       <source src={selectedMedia.src} type="video/mp4" />
                     </video>
                   )}
-                  
+
                   {/* Glass Overlay */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                  
+
                   {/* Control Bar */}
                   <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 via-black/50 to-transparent backdrop-blur-sm">
                     <div className="flex items-center justify-between">
@@ -237,10 +237,33 @@ export function Hero() {
                     >
                       Book Now
                     </button>
+
                   </div>
                 </div>
               </div>
+
             </div>
+            
+              {/* Frequency Spectrum */}
+              <div className="mt-6 p-4 rounded-xl bg-gray-900/50 backdrop-blur-sm border border-gray-800">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-gray-300">Frequency Spectrum</span>
+                  <Sparkles className="h-4 w-4 text-purple-400" />
+                </div>
+                <div className="h-20 flex items-end justify-center gap-1">
+                  {Array.from({ length: 32 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-1.5 rounded-t bg-gradient-to-t from-purple-500 via-blue-500 to-cyan-500"
+                      style={{
+                        height: `${Math.random() * 40 + 10}px`,
+                        animation: `spectrum ${1 + Math.random()}s ease-in-out infinite`,
+                        animationDelay: `${i * 0.05}s`,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
           </div>
         </div>
       </div>

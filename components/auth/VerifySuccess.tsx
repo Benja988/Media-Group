@@ -16,7 +16,7 @@ export function VerifySuccess({ message }: Props) {
       </div>
       <p className="text-gray-600">{message}</p>
       <AuthButton asChild>
-        <Link href="/auth/login">Continue to Login</Link>
+        <Link href="/login">Continue to Login</Link>
       </AuthButton>
     </>
   );

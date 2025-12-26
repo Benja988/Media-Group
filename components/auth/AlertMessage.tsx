@@ -1,49 +1,32 @@
-import { AlertCircle, CheckCircle, Info, X } from 'lucide-react';
-import { useState } from 'react';
+// components/auth/AlertMessage.tsx
+import { AlertCircle, CheckCircle, Info, XCircle } from 'lucide-react';
 
 interface AlertMessageProps {
-  type: 'success' | 'error' | 'info' | 'warning';
+  type: 'success' | 'error' | 'warning' | 'info';
   message: string;
-  closable?: boolean;
 }
 
-export function AlertMessage({ type, message, closable = true }: AlertMessageProps) {
-  const [isVisible, setIsVisible] = useState(true);
-
-  if (!isVisible) return null;
-
+export function AlertMessage({ type, message }: AlertMessageProps) {
   const icons = {
     success: CheckCircle,
-    error: AlertCircle,
-    info: Info,
+    error: XCircle,
     warning: AlertCircle,
+    info: Info,
   };
 
   const styles = {
-    success: 'bg-green-50 text-green-800 border-green-200',
-    error: 'bg-red-50 text-red-800 border-red-200',
-    info: 'bg-blue-50 text-blue-800 border-blue-200',
-    warning: 'bg-yellow-50 text-yellow-800 border-yellow-200',
+    success: 'bg-green-500/10 border-green-500/20 text-green-600',
+    error: 'bg-red-500/10 border-red-500/20 text-red-600',
+    warning: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-600',
+    info: 'bg-blue-500/10 border-blue-500/20 text-blue-600',
   };
 
-  const Icon = icons[type];
+  const IconComponent = icons[type];
 
   return (
-    <div className={`rounded-lg border p-4 ${styles[type]}`}>
-      <div className="flex items-start gap-3">
-        <Icon className="h-5 w-5 mt-0.5 flex-shrink-0" />
-        <div className="flex-1">
-          <p className="text-sm">{message}</p>
-        </div>
-        {closable && (
-          <button
-            onClick={() => setIsVisible(false)}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <X size={16} />
-          </button>
-        )}
-      </div>
+    <div className={`flex items-start gap-3 p-4 rounded-lg border ${styles[type]} animate-fade-in`}>
+      <IconComponent className="h-5 w-5 flex-shrink-0 mt-0.5" />
+      <p className="text-sm font-medium">{message}</p>
     </div>
   );
 }

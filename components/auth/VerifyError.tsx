@@ -18,10 +18,10 @@ export function VerifyError({ message }: Props) {
 
       <div className="space-y-3">
         <AuthButton asChild>
-          <Link href="/auth/register">Register Again</Link>
+          <Link href="/register">Register Again</Link>
         </AuthButton>
         <AuthButton variant="outline" asChild>
-          <Link href="/auth/login">Back to Login</Link>
+          <Link href="/login">Back to Login</Link>
         </AuthButton>
       </div>
     </>

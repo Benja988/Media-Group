@@ -1,82 +1,44 @@
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
+import { Slot } from '@radix-ui/react-slot';
 
-interface AuthButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface AuthButtonProps {
   children: ReactNode;
+  type?: 'button' | 'submit' | 'reset';
   loading?: boolean;
-  variant?: 'primary' | 'secondary' | 'outline';
-  fullWidth?: boolean;
+  disabled?: boolean;
+  variant?: 'primary' | 'outline' | 'ghost';
   asChild?: boolean;
 }
 
 export function AuthButton({
   children,
-  loading,
+  type = 'button',
+  loading = false,
+  disabled = false,
   variant = 'primary',
-  fullWidth = true,
   asChild = false,
-  ...props
 }: AuthButtonProps) {
-  const Comp = asChild ? undefined : 'button';
+  const Comp = asChild ? Slot : 'button';
 
-  const baseClasses = `
-    px-4 py-3 rounded-lg font-medium transition-all duration-200
-    flex items-center justify-center gap-2
-    ${fullWidth ? 'w-full' : ''}
-    disabled:opacity-50 disabled:cursor-not-allowed
-    focus:outline-none focus:ring-2 focus:ring-offset-2
-  `;
+  const baseClasses =
+    "w-full py-3 px-6 rounded-lg font-medium transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 text-base";
 
-  const variants = {
-    primary:
-      'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 focus:ring-blue-500',
-    secondary:
-      'bg-gray-100 text-gray-800 hover:bg-gray-200 focus:ring-gray-500',
-    outline:
-      'border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-blue-500',
+  const variantClasses = {
+    primary: 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-md hover:shadow-lg',
+    outline: 'border-2 border-primary text-primary hover:bg-primary/5',
+    ghost: 'border border-border text-foreground hover:bg-muted',
   };
 
-  if (asChild) {
-    // when using a child element (e.g. Next `Link`) we must ensure there is a single
-    // React element child and clone it with the button props applied. This avoids
-    // `React.Children.only` errors from Slot when multiple children are present.
-    const child = React.Children.only(children) as React.ReactElement;
-    const childClass = [
-      (child.props && (child.props as any).className) || '',
-      baseClasses,
-      variants[variant],
-    ]
-      .filter(Boolean)
-      .join(' ');
-
-    const mergedProps: any = {
-      ...props,
-      className: childClass,
-    };
-
-    if (loading) {
-      const newChildren = (
-        <>
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {child.props && (child.props as any).children}
-        </>
-      );
-
-      return React.cloneElement(child, mergedProps, newChildren);
-    }
-
-    return React.cloneElement(child, mergedProps);
-  }
-
   return (
-    <button
-      className={`${baseClasses} ${variants[variant]}`}
-      disabled={loading}
-      {...props}
+    <Comp
+      type={!asChild ? type : undefined}
+      disabled={!asChild ? disabled || loading : undefined}
+      className={`${baseClasses} ${variantClasses[variant]}`}
     >
-      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-      {children}
-    </button>
+      <div className="flex items-center justify-center gap-3">
+        {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : children}
+      </div>
+    </Comp>
   );
 }

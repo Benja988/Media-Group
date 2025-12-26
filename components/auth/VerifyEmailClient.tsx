@@ -46,7 +46,10 @@ export function VerifyEmailClient() {
   }, [token, router]);
 
   return (
-    <FormCard title="Email Verification">
+    <FormCard
+      title="Email Verification"
+      description="Verifying your email address"
+    >
       <div className="text-center space-y-6">
         {status === 'loading' && <VerifyLoading />}
 

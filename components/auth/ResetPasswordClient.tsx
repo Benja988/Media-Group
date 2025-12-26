@@ -28,7 +28,7 @@ type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>;
 
 export function ResetPasswordClient() {
   const router = useRouter();
-  const searchParams = useSearchParams(); 
+  const searchParams = useSearchParams();
   const token = searchParams.get('token');
 
   const [loading, setLoading] = useState(false);
@@ -58,7 +58,9 @@ export function ResetPasswordClient() {
 
   if (tokenValid === false) {
     return (
-      <FormCard title="Invalid Reset Link">
+      <FormCard
+        title="Invalid Reset Link"
+        description="">
         <AlertCircle className="mx-auto h-8 w-8 text-red-600" />
       </FormCard>
     );
@@ -66,20 +68,26 @@ export function ResetPasswordClient() {
 
   if (success) {
     return (
-      <FormCard title="Password Reset Successful">
+      <FormCard
+        title="Password Reset Successful"
+        description="">
         <CheckCircle className="mx-auto h-8 w-8 text-green-600" />
       </FormCard>
     );
   }
 
   return (
-    <FormCard title="Set New Password">
-      <form onSubmit={handleSubmit(() => {})} className="space-y-6">
+    <FormCard
+      title="Set New Password"
+      description="">
+      <form onSubmit={handleSubmit(() => { })} className="space-y-6">
         {error && <AlertMessage type="error" message={error} />}
 
         <FormInput
           label="New Password"
           type="password"
+          placeholder="New password"
+          icon="lock"
           error={errors.password?.message}
           {...register('password')}
         />
@@ -87,6 +95,8 @@ export function ResetPasswordClient() {
         <FormInput
           label="Confirm Password"
           type="password"
+          placeholder="Confirm your password"
+          icon="lock"
           error={errors.confirmPassword?.message}
           {...register('confirmPassword')}
         />

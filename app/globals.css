@@ -337,3 +337,70 @@
     animation: gradient-shift 3s ease infinite;
   }
 }
+
+
+@layer base {
+  /* Smooth theme transitions */
+  .theme-transition-ready * {
+    transition: background-color 0.3s ease, 
+                border-color 0.3s ease, 
+                color 0.3s ease;
+  }
+
+  /* Prevent flash of unstyled content */
+  html:not(.theme-transition-ready) {
+    transition: none !important;
+  }
+  
+  html:not(.theme-transition-ready) * {
+    transition: none !important;
+  }
+
+  /* System scrollbar theming */
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgb(var(--muted));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--border));
+    border-radius: 5px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--primary));
+  }
+}
+
+@layer utilities {
+  /* Theme transition animations */
+  .theme-transition {
+    transition: background-color 0.3s ease, 
+                border-color 0.3s ease, 
+                color 0.3s ease,
+                fill 0.3s ease,
+                stroke 0.3s ease;
+  }
+
+  /* Focus styles that respect theme */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2;
+  }
+
+  .focus-ring-inset {
+    @apply focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary;
+  }
+}
