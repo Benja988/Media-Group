@@ -79,7 +79,6 @@ export async function registerUser(input: RegisterInput) {
 
 
 export async function loginUser({ email, password }: LoginInput) {
-  // Find user and include password hash
   const user = await User.findOne({ email }).select("+passwordHash");
 
   if (!user || !user.isActive) {
@@ -87,43 +86,45 @@ export async function loginUser({ email, password }: LoginInput) {
     throw new Error("Invalid credentials");
   }
 
-  if (!user.emailVerified) {
+  const rolesRequiringVerification = ["user", "editor", "contributor"];
+
+  // Only force email verification for non-admin roles
+  if (
+    rolesRequiringVerification.includes(user.role) &&
+    !user.emailVerified
+  ) {
     throw new Error("Please verify your email before logging in");
   }
 
-  // Verify password
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
     logger.warn("Login failed: wrong password", { email });
     throw new Error("Invalid credentials");
   }
 
-  // Update last login
   user.lastLoginAt = new Date();
   await user.save();
 
-  // Sign access token
   const accessToken = signToken({
     sub: user._id.toString(),
     role: user.role,
     scope: user.scope || {},
   });
 
-  // Generate refresh token
   const refreshToken = generateToken(40);
   await RefreshToken.create({
     userId: user._id,
     token: refreshToken,
-    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
   });
 
-  logger.info("User logged in", { userId: user._id });
+  const name =
+    user.profile?.firstName && user.profile?.lastName
+      ? `${user.profile.firstName} ${user.profile.lastName}`
+      : user.profile?.firstName ||
+        user.profile?.lastName ||
+        user.email.split("@")[0];
 
-  const name = user.profile?.firstName && user.profile?.lastName
-    ? `${user.profile.firstName} ${user.profile.lastName}`
-    : user.profile?.firstName || user.profile?.lastName || user.email.split('@')[0];
-
-  // Return structured response
   return {
     user: {
       id: user._id.toString(),
@@ -136,6 +137,7 @@ export async function loginUser({ email, password }: LoginInput) {
     refreshToken,
   };
 }
+
 
 export async function verifyEmail(token: string) {
   const user = await User.findOne({ emailVerificationToken: token });

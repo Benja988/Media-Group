@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Home, Mic2, Music, Users, User as UserIcon, Settings, LogOut, X, Headphones } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
-import { ThemeToggle } from '@/components/theme/ThemeToggle'; 
+import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { useAuth } from '@/context/AuthContext';
 
 export default function SiteNav() {
@@ -23,11 +23,13 @@ export default function SiteNav() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, [profileDropdownOpen]);
 
+  const authUser = isAuthenticated ? user : null;
+
   return (
     <nav className="site-nav sticky top-0 z-50 bg-white/90 dark:bg-primary/90 backdrop-blur-md border-b border-gray-200 dark:border-blue-950">
       <div className="container-width">
         <div className="flex items-center justify-between h-14">
-          
+
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2">
             {!logoError ? (
@@ -51,8 +53,8 @@ export default function SiteNav() {
             <NavLink href="/stations" icon={<Mic2 className="h-4 w-4" />}>Stations</NavLink>
             <NavLink href="/media" icon={<Music className="h-4 w-4" />}>Media</NavLink>
             <NavLink href="/groups" icon={<Users className="h-4 w-4" />}>Groups</NavLink>
-            <Link 
-              href="/live" 
+            <Link
+              href="/live"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-sm font-medium"
             >
               <div className="relative">
@@ -66,9 +68,10 @@ export default function SiteNav() {
           {/* Right Side Actions */}
           <div className="flex items-center gap-4">
             <ThemeToggle />
-            
+
             {/* Auth Section */}
-            {isAuthenticated && user ? (
+            {/* Auth Section */}
+            {authUser ? (
               <div className="relative profile-dropdown">
                 <button
                   onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
@@ -77,20 +80,27 @@ export default function SiteNav() {
                   aria-haspopup="true"
                 >
                   <div className="h-8 w-8 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold">
-                    {user.name?.[0]?.toUpperCase() || <UserIcon className="h-4 w-4" />}
+                    {authUser.name
+                      ? authUser.name.charAt(0).toUpperCase()
+                      : <UserIcon className="h-4 w-4" />}
                   </div>
+
                   <span className="hidden md:inline text-sm font-medium">
-                    {user.name?.split(' ')[0] || 'Profile'}
+                    {authUser.name?.split(" ")[0] ?? "Profile"}
                   </span>
                 </button>
-                
+
                 {profileDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-56 rounded-lg bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 py-2 z-50">
                     <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-                      <p className="text-sm font-semibold">{user.name || 'User'}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
+                      <p className="text-sm font-semibold">
+                        {authUser.name ?? "User"}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {authUser.email}
+                      </p>
                     </div>
-                    
+
                     <Link
                       href="/profile"
                       className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
@@ -99,7 +109,7 @@ export default function SiteNav() {
                       <UserIcon className="h-4 w-4" />
                       My Profile
                     </Link>
-                    
+
                     <Link
                       href="/settings"
                       className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
@@ -109,7 +119,7 @@ export default function SiteNav() {
                       Settings
                     </Link>
 
-                    {["super_admin", "group_admin", "station_admin"].includes(user.role) && (
+                    {["super_admin", "group_admin", "station_admin"].includes(authUser.role) && (
                       <Link
                         href="/admin"
                         className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm"
@@ -121,7 +131,7 @@ export default function SiteNav() {
                     )}
 
                     <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
-                    
+
                     <button
                       onClick={async () => {
                         await logout();
@@ -137,17 +147,22 @@ export default function SiteNav() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <Link href="/login" className="px-3 py-1.5 text-sm dark:text-white hover:text-gray-900 dark:hover:text-gray-100 transition-colors">
+                <Link
+                  href="/login"
+                  className="px-3 py-1.5 text-sm dark:text-white hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                >
                   Sign In
                 </Link>
-                <Link 
-                  href="/register" 
+
+                <Link
+                  href="/register"
                   className="px-4 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg text-sm font-medium transition-all"
                 >
                   Get Started
                 </Link>
               </div>
             )}
+
 
             {/* Mobile Menu Button */}
             <button
@@ -181,8 +196,8 @@ export default function SiteNav() {
 // Reusable NavLink components
 function NavLink({ href, icon, children }: { href: string; icon: React.ReactNode; children: string }) {
   return (
-    <Link 
-      href={href} 
+    <Link
+      href={href}
       className="flex items-center gap-1.5 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
     >
       {icon}
@@ -193,8 +208,8 @@ function NavLink({ href, icon, children }: { href: string; icon: React.ReactNode
 
 function MobileNavLink({ href, icon, children }: { href: string; icon: React.ReactNode; children: string }) {
   return (
-    <Link 
-      href={href} 
+    <Link
+      href={href}
       className="flex flex-col items-center gap-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
     >
       {icon}

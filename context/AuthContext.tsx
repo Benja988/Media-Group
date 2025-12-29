@@ -81,7 +81,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     setUser(data.user);
     // isAuthenticated updates automatically due to useMemo
-    window.location.href = ROUTES.HOME;
+    // window.location.href = ROUTES.HOME;
+    router.replace(ROUTES.HOME);
+
   };
 
   // 🔹 Register
@@ -99,28 +101,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   // 🔹 Logout
-  const logout = async () => {
-    try {
-      const refreshToken = localStorage.getItem('refreshToken');
-      if (refreshToken) {
-        await fetch("/api/auth/logout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken }),
-        });
-      }
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      setUser(null);
-      window.location.href = ROUTES.HOME;
-    } catch (err) {
-      console.error("❌ Error logging out:", err);
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      setUser(null);
-      window.location.href = ROUTES.HOME;
-    }
-  };
+const logout = async () => {
+  try {
+    const refreshToken = localStorage.getItem("refreshToken");
+
+    // Call backend logout API
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ refreshToken }),
+    });
+
+  } catch (err) {
+    console.error("❌ Logout error:", err);
+  } finally {
+    // Clear tokens regardless of request success
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+
+    setUser(null);
+
+    router.replace(ROUTES.LOGIN);
+  }
+};
+
+
 
   return (
     <AuthContext.Provider

@@ -45,15 +45,21 @@ export default function StationsPage() {
 
     // Get unique regions for filter
     const regions = useMemo(() => {
-        const uniqueRegions = new Set(stations.map(s => s.region).filter(Boolean));
+        const uniqueRegions = new Set(
+            stations
+                .map(s => s.region)
+                .filter((region): region is string => Boolean(region))
+        );
+
         return Array.from(uniqueRegions).sort();
     }, [stations]);
+
 
     // Filter stations based on search and filters
     const filteredStations = useMemo(() => {
         return stations.filter(station => {
             const matchesSearch = station.name.toLowerCase().includes(search.toLowerCase()) ||
-                                 (station.region && station.region.toLowerCase().includes(search.toLowerCase()));
+                (station.region && station.region.toLowerCase().includes(search.toLowerCase()));
             const matchesFilter = filter === 'all' || station.type === filter;
             const matchesRegion = !selectedRegion || station.region === selectedRegion;
             return matchesSearch && matchesFilter && matchesRegion;
