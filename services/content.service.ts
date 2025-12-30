@@ -58,7 +58,6 @@ export async function updateContent(input: UpdateContentInput) {
         const slug = updateData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
         updateData.slug = slug;
 
-        // Check slug uniqueness
         const existing = await Content.findOne({
             slug,
             stationId: updateData.stationId || (await Content.findById(id)).stationId,

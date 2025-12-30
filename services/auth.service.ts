@@ -85,7 +85,6 @@ export async function loginUser({ email, password }: LoginInput) {
 
   const rolesRequiringVerification = ["user", "editor", "contributor"];
 
-  // Only force email verification for non-admin roles
   if (
     rolesRequiringVerification.includes(user.role) &&
     !user.emailVerified
