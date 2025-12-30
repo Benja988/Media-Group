@@ -1,6 +1,7 @@
 // app/admin/layout.tsx
 
 import AuthGuard from "@/context/AuthGuard";
+import AdminSidebar from "@/components/admin/AdminSidebar";
 
 export default function AdminLayout({
     children,
@@ -11,8 +12,8 @@ export default function AdminLayout({
         <AuthGuard>
             <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
                 <div className="flex">
-                    {/* Sidebar would go here */}
-                    <main className="flex-1">
+                    <AdminSidebar />
+                    <main className="flex-1 p-6">
                         {children}
                     </main>
                 </div>

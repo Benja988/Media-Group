@@ -13,7 +13,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     if (!loading) {
       if (!user) {
         router.push(ROUTES.LOGIN);
-      } else if (!["admin", "editor"].includes(user.role)) {
+      } else if (!["super_admin", "editor"].includes(user.role)) {
         router.push(ROUTES.HOME); // Redirect unauthorized users to home instead of 403
       }
     }

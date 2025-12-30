@@ -40,7 +40,7 @@ function generateToken(bytes = 32) {
   return crypto.randomBytes(bytes).toString("hex");
 }
 
-async function hashPassword(password: string) {
+export async function hashPassword(password: string) {
   return bcrypt.hash(password, 12);
 }
 
