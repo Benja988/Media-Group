@@ -9,10 +9,7 @@ import { signToken } from "@/lib/auth/token";
 import { UserRole } from "@/types/auth";
 import { logger } from "@/lib/logger";
 
-import {
-  sendVerificationEmail,
-  sendPasswordResetEmail,
-} from "./email.service";
+import { sendVerificationEmail,sendPasswordResetEmail } from "./email.service";
 
 
 interface RegisterInput {
