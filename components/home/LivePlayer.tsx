@@ -255,6 +255,14 @@ export function LivePlayer({ featuredStations, currentStation, setCurrentStation
                         {hasStations ? 'BROADCAST' : 'DEMO PREVIEW'}
                       </div>
                     </div>
+                    {!hasStations && (
+                      <div className="px-3 py-2 rounded-full backdrop-blur-sm bg-white/50 dark:bg-gray-800/50 border border-blue-200 dark:border-gray-700">
+                        <span className="text-sm font-medium text-blue-900 dark:text-blue-300 flex items-center gap-2">
+                          <Clock className="h-3 w-3" />
+                          Coming Soon
+                        </span>
+                      </div>
+                    )}
                     <div className="px-3 py-2 rounded-full backdrop-blur-sm bg-white/50 dark:bg-gray-800/50 border border-blue-200 dark:border-gray-700">
                       <span className="text-sm font-medium text-blue-900 dark:text-blue-300 flex items-center gap-2">
                         <Zap className="h-3 w-3" />
