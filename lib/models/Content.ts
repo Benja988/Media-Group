@@ -28,7 +28,7 @@ const ContentSchema = new Schema(
     stationId: {
       type: Types.ObjectId,
       ref: "Station",
-      required: true,
+      required: false,
       index: true,
     },
 
