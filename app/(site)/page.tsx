@@ -23,6 +23,7 @@ import { TopStationsCTA } from "@/components/home/TopStationsCTA";
 import { SectionDivider } from "@/components/layout/SectionDivider";
 import { WaveDivider } from "@/components/layout/WaveDivider";
 import { ServicesSection } from "@/components/home/ServicesSection";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 
 export default function HomePage() {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -398,6 +399,7 @@ export default function HomePage() {
       {/*
       <TopStationsCTA topStations={topStations} />
       */}
+    <SiteFooter />
     </>
   );
 }

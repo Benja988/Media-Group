@@ -1,0 +1,9 @@
+Tetemeko media Group
+1. Admin Panel
+- Station
+- News
+- Content
+- MarketPlace
+
+2. Users Panel
+=> Corresponding admin Controls
