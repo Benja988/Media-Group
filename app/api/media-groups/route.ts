@@ -1,4 +1,5 @@
 import { connectDB } from "@/lib/db";
+import { requireAuth } from "@/middleware/auth";
 import {
   listMediaGroups,
   createMediaGroup,
@@ -18,6 +19,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   await connectDB();
+  await requireAuth(req);
+
   const body = await req.json();
 
   const mediaGroup = await createMediaGroup(body);
