@@ -1,31 +1,33 @@
-import { MediaGroup } from "@/lib/models";
-import { logger } from "@/lib/logger";
+import { MediaGroup } from '@/lib/models'
+import { logger } from '@/lib/logger'
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
 /* -------------------------------------------------------------------------- */
 
 export interface CreateMediaGroupInput {
-  name: string;
-  slug: string;
-  description?: string;
-  logoUrl?: string;
+  name: string
+  slug: string
+  description?: string
+  logoUrl?: string
   branding?: {
-    primaryColor?: string;
-    secondaryColor?: string;
-    websiteUrl?: string;
-  };
+    primaryColor?: string
+    secondaryColor?: string
+    websiteUrl?: string
+  }
   contactInfo?: {
-    email?: string;
-    phone?: string;
-    address?: string;
-  };
-  status?: "active" | "inactive" | "archived";
+    email?: string
+    phone?: string
+    address?: string
+  }
+  status?: 'active' | 'inactive' | 'archived'
 }
 
-export interface UpdateMediaGroupInput
-  extends Omit<CreateMediaGroupInput, "slug"> {
-  id: string;
+export interface UpdateMediaGroupInput extends Omit<
+  CreateMediaGroupInput,
+  'slug'
+> {
+  id: string
 }
 
 /* -------------------------------------------------------------------------- */
@@ -36,16 +38,16 @@ export async function createMediaGroup(data: CreateMediaGroupInput) {
   const exists = await MediaGroup.exists({
     slug: data.slug,
     deletedAt: null,
-  });
+  })
 
   if (exists) {
-    throw new Error("Media group with this slug already exists");
+    throw new Error('Media group with this slug already exists')
   }
 
-  const mediaGroup = await MediaGroup.create(data);
+  const mediaGroup = await MediaGroup.create(data)
 
-  logger.info("MediaGroup created", { mediaGroupId: mediaGroup._id });
-  return mediaGroup;
+  logger.info('MediaGroup created', { mediaGroupId: mediaGroup._id })
+  return mediaGroup
 }
 
 /* -------------------------------------------------------------------------- */
@@ -56,53 +58,78 @@ export async function getMediaGroupById(id: string) {
   return MediaGroup.findOne({
     _id: id,
     deletedAt: null,
-  }).lean();
+  }).lean()
 }
 
 export async function getMediaGroupBySlug(slug: string) {
   return MediaGroup.findOne({
     slug,
     deletedAt: null,
-  }).lean();
+  }).lean()
 }
+
+const ALLOWED_SORT_FIELDS = ['createdAt', 'name', 'status'] as const
+
+type SortField = (typeof ALLOWED_SORT_FIELDS)[number]
 
 export async function listMediaGroups({
   status,
   limit = 20,
   offset = 0,
-  sortBy = "createdAt",
+  sortBy = 'createdAt',
   sortOrder = -1,
 }: {
-  status?: "active" | "inactive" | "archived";
-  limit?: number;
-  offset?: number;
-  sortBy?: string;
-  sortOrder?: 1 | -1;
+  status?: 'active' | 'inactive' | 'archived'
+  limit?: number
+  offset?: number
+  sortBy?: SortField
+  sortOrder?: 1 | -1
 } = {}) {
-  const filter: any = { deletedAt: null };
-  if (status) filter.status = status;
+  const filter: Record<string, any> = {
+    deletedAt: null,
+  }
 
-  return MediaGroup.find(filter)
-    .sort({ [sortBy]: sortOrder })
-    .skip(offset)
-    .limit(limit)
-    .lean();
+  if (status) {
+    filter.status = status
+  }
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100)
+  const safeOffset = Math.max(Number(offset) || 0, 0)
+
+  const safeSortBy: SortField = ALLOWED_SORT_FIELDS.includes(
+    sortBy as SortField,
+  )
+    ? (sortBy as SortField)
+    : 'createdAt'
+
+
+  return await MediaGroup.find(filter)
+    .sort({ [safeSortBy]: sortOrder })
+    .skip(safeOffset)
+    .limit(safeLimit)
+    .lean()
+    .exec()
 }
 
 export async function getActiveMediaGroups() {
+  console.log("MediaGroup count:", await MediaGroup.countDocuments({ deletedAt: null }));
   return MediaGroup.find({
-    status: "active",
+    status: 'active',
     deletedAt: null,
-  }).lean();
+  })
+    .lean()
+    .exec()
 }
 
-export async function countMediaGroups(filter: {
-  status?: string;
-} = {}) {
+export async function countMediaGroups(
+  filter: {
+    status?: string
+  } = {},
+) {
   return MediaGroup.countDocuments({
     ...filter,
     deletedAt: null,
-  });
+  })
 }
 
 /* -------------------------------------------------------------------------- */
@@ -110,22 +137,22 @@ export async function countMediaGroups(filter: {
 /* -------------------------------------------------------------------------- */
 
 export async function updateMediaGroup(input: UpdateMediaGroupInput) {
-  const { id, ...updateData } = input;
+  const { id, ...updateData } = input
 
   const mediaGroup = await MediaGroup.findOne({
     _id: id,
     deletedAt: null,
-  });
+  })
 
   if (!mediaGroup) {
-    throw new Error("Media group not found");
+    throw new Error('Media group not found')
   }
 
-  Object.assign(mediaGroup, updateData);
-  await mediaGroup.save();
+  Object.assign(mediaGroup, updateData)
+  await mediaGroup.save()
 
-  logger.info("MediaGroup updated", { mediaGroupId: id });
-  return mediaGroup;
+  logger.info('MediaGroup updated', { mediaGroupId: id })
+  return mediaGroup
 }
 
 /* -------------------------------------------------------------------------- */
@@ -135,23 +162,23 @@ export async function updateMediaGroup(input: UpdateMediaGroupInput) {
 export async function archiveMediaGroup(id: string) {
   const mediaGroup = await MediaGroup.findOneAndUpdate(
     { _id: id, deletedAt: null },
-    { status: "archived" },
-    { new: true }
-  );
+    { status: 'archived' },
+    { new: true },
+  )
 
-  if (!mediaGroup) throw new Error("Media group not found");
-  return mediaGroup;
+  if (!mediaGroup) throw new Error('Media group not found')
+  return mediaGroup
 }
 
 export async function restoreMediaGroup(id: string) {
   const mediaGroup = await MediaGroup.findByIdAndUpdate(
     id,
-    { status: "active" },
-    { new: true }
-  );
+    { status: 'active' },
+    { new: true },
+  )
 
-  if (!mediaGroup) throw new Error("Media group not found");
-  return mediaGroup;
+  if (!mediaGroup) throw new Error('Media group not found')
+  return mediaGroup
 }
 
 export async function deleteMediaGroup(id: string) {
@@ -159,13 +186,13 @@ export async function deleteMediaGroup(id: string) {
     { _id: id, deletedAt: null },
     {
       deletedAt: new Date(),
-      status: "archived",
+      status: 'archived',
     },
-    { new: true }
-  );
+    { new: true },
+  )
 
-  if (!mediaGroup) throw new Error("Media group not found");
+  if (!mediaGroup) throw new Error('Media group not found')
 
-  logger.info("MediaGroup soft-deleted", { mediaGroupId: id });
-  return mediaGroup;
+  logger.info('MediaGroup soft-deleted', { mediaGroupId: id })
+  return mediaGroup
 }
