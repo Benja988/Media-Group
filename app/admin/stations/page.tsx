@@ -28,9 +28,9 @@ export default function StationsManagement() {
 
     useEffect(() => {
         fetchStations();
-    }, []);
+    }, [filter, typeFilter]);
 
-    const fetchStations = async () => {
+    /* const fetchStations = async () => {
         try {
             const response = await fetch('/api/stations');
             if (response.ok) {
@@ -42,7 +42,24 @@ export default function StationsManagement() {
         } finally {
             setLoading(false);
         }
+    }; */
+
+    const fetchStations = async () => {
+        try {
+            const params = new URLSearchParams();
+
+            if (filter !== "all") params.set("status", filter);
+            if (typeFilter !== "all") params.set("type", typeFilter);
+            if (search) params.set("region", search);
+
+            const response = await fetch(`/api/stations?${params.toString()}`);
+            const data = await response.json();
+            setStations(data);
+        } finally {
+            setLoading(false);
+        }
     };
+
 
     const handleDelete = async (id: string) => {
         if (!confirm('Are you sure you want to delete this station? This action cannot be undone.')) return;
@@ -63,7 +80,7 @@ export default function StationsManagement() {
 
     const filteredStations = stations.filter(station => {
         const matchesSearch = station.name.toLowerCase().includes(search.toLowerCase()) ||
-                             (station.region && station.region.toLowerCase().includes(search.toLowerCase()));
+            (station.region && station.region.toLowerCase().includes(search.toLowerCase()));
         const matchesStatusFilter = filter === 'all' || station.status === filter;
         const matchesTypeFilter = typeFilter === 'all' || station.type === typeFilter;
         return matchesSearch && matchesStatusFilter && matchesTypeFilter;
@@ -210,17 +227,15 @@ export default function StationsManagement() {
                         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                             <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-center gap-3">
-                                    <div className={`p-3 rounded-lg ${
-                                        station.type === 'radio'
-                                            ? 'bg-blue-100 dark:bg-blue-900'
-                                            : 'bg-purple-100 dark:bg-purple-900'
-                                    }`}>
+                                    <div className={`p-3 rounded-lg ${station.type === 'radio'
+                                        ? 'bg-blue-100 dark:bg-blue-900'
+                                        : 'bg-purple-100 dark:bg-purple-900'
+                                        }`}>
                                         {station.type === 'radio' ? (
-                                            <Radio className={`h-6 w-6 ${
-                                                station.type === 'radio'
-                                                    ? 'text-blue-600 dark:text-blue-400'
-                                                    : 'text-purple-600 dark:text-purple-400'
-                                            }`} />
+                                            <Radio className={`h-6 w-6 ${station.type === 'radio'
+                                                ? 'text-blue-600 dark:text-blue-400'
+                                                : 'text-purple-600 dark:text-purple-400'
+                                                }`} />
                                         ) : (
                                             <Tv className="h-6 w-6 text-purple-600 dark:text-purple-400" />
                                         )}
@@ -234,13 +249,12 @@ export default function StationsManagement() {
                                         </p>
                                     </div>
                                 </div>
-                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                    station.status === 'active'
-                                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                        : station.status === 'inactive'
+                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${station.status === 'active'
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                    : station.status === 'inactive'
                                         ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                                         : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
-                                }`}>
+                                    }`}>
                                     {station.status}
                                 </span>
                             </div>

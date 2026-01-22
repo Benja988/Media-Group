@@ -31,8 +31,28 @@ const sidebarItems = [
     href: '/admin/stations',
     icon: Mic2,
     subItems: [
-      { name: 'All Stations', href: '/admin/stations' },
-      { name: 'New Station', href: '/admin/stations/new' },
+      {
+        name: 'All Stations',
+        href: '/admin/stations',
+      },
+      {
+        name: 'Create Station',
+        href: '/admin/stations/new',
+      },
+      {
+        name: 'Analytics',
+        href: '/admin/stations/analytics',
+      },
+    ],
+  },
+
+  {
+    name: 'Media Group',
+    href: '/admin/media-groups',
+    icon: Mic2,
+    subItems: [
+      { name: 'All Stations', href: '/admin/media-groups' },
+      { name: 'New Station', href: '/admin/media-groups/new' },
     ],
   },
   {
@@ -70,11 +90,10 @@ export default function AdminSidebar() {
               <li key={item.name}>
                 <Link
                   href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isActive
                       ? 'bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
                       : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                  }`}
+                    }`}
                 >
                   <Icon className="h-5 w-5" />
                   {item.name}
@@ -85,11 +104,10 @@ export default function AdminSidebar() {
                       <li key={subItem.name}>
                         <Link
                           href={subItem.href}
-                          className={`flex items-center gap-2 px-3 py-1 rounded text-xs transition-colors ${
-                            pathname === subItem.href
+                          className={`flex items-center gap-2 px-3 py-1 rounded text-xs transition-colors ${pathname === subItem.href
                               ? 'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100'
                               : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-600'
-                          }`}
+                            }`}
                         >
                           {subItem.name}
                         </Link>
