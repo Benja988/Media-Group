@@ -35,7 +35,6 @@ export default function RootLayout({
       <body
         className="min-h-screen bg-background text-foreground font-sans"
       >
-
         <ThemeProvider>
           <AuthProvider>
             {children}
