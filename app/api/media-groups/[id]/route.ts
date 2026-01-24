@@ -1,3 +1,5 @@
+// api/media-groups/[id]/route.ts
+
 import { connectDB } from "@/lib/db";
 import {
   getMediaGroupById,
