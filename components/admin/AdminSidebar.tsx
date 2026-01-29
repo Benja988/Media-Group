@@ -51,8 +51,8 @@ const sidebarItems = [
     href: '/admin/media-groups',
     icon: Mic2,
     subItems: [
-      { name: 'All Stations', href: '/admin/media-groups' },
-      { name: 'New Station', href: '/admin/media-groups/new' },
+      { name: 'Media Group', href: '/admin/media-groups' },
+      // { name: 'New Station', href: '/admin/media-groups/new' },
     ],
   },
   {
