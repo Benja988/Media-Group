@@ -1,34 +1,15 @@
-// app/media-group/page.tsx
+'use client';
 
-import { notFound } from 'next/navigation';
-import Image from 'next/image';
-import Link from 'next/link';
-import {
-  Phone,
-  Mail,
-  Globe,
-  MapPin,
-  Radio,
-  Tv,
-  Newspaper,
-  Users,
-  Calendar,
-  ExternalLink,
-  Shield,
-  Edit,
-  Settings,
-  Bell,
-  Megaphone,
-  Building2,
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
 
-// Type definitions based on your MediaGroup model
+// Types
 interface MediaGroup {
   _id: string;
   name: string;
   slug: string;
   description?: string;
   logoUrl?: string;
+  status: 'active' | 'inactive' | 'archived';
   branding?: {
     primaryColor?: string;
     secondaryColor?: string;
@@ -39,552 +20,931 @@ interface MediaGroup {
     phone?: string;
     address?: string;
   };
-  status: 'active' | 'inactive' | 'archived';
   createdAt: string;
   updatedAt: string;
-  deletedAt?: string | null;
 }
 
-async function fetchActiveMediaGroup(): Promise<MediaGroup | null> {
-  try {
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/media-groups?status=active&limit=1`,
-      {
-        cache: 'no-store',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+interface CreateMediaGroupData {
+  name: string;
+  slug: string;
+  description?: string;
+  logoUrl?: string;
+  status?: 'active' | 'inactive' | 'archived';
+  branding?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    websiteUrl?: string;
+  };
+  contactInfo?: {
+    email?: string;
+    phone?: string;
+    address?: string;
+  };
+}
+
+interface EditMediaGroupData extends Omit<CreateMediaGroupData, 'slug'> {
+  id: string;
+}
+
+// API Helper Functions
+const api = {
+  async fetchMediaGroups(params?: {
+    status?: 'active' | 'inactive' | 'archived';
+    limit?: number;
+    offset?: number;
+    sortBy?: 'createdAt' | 'name' | 'status';
+    sortOrder?: 1 | -1;
+  }) {
+    const queryParams = new URLSearchParams();
+    
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder.toString());
+    
+    const response = await fetch(`/api/media-groups?${queryParams}`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch media groups');
+    }
+    
+    return response.json();
+  },
+
+  async createMediaGroup(data: CreateMediaGroupData) {
+    const response = await fetch('/api/media-groups', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch media group: ${response.statusText}`);
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create media group');
     }
 
-    const mediaGroups = await response.json();
-    return mediaGroups[0] || null;
-  } catch (error) {
-    console.error('Error fetching media group:', error);
-    return null;
-  }
-}
+    return response.json();
+  },
 
-export default async function MediaGroupPage() {
-  // Fetch the single active media group
-  const mediaGroup = await fetchActiveMediaGroup();
+  async updateMediaGroup(data: EditMediaGroupData) {
+    const response = await fetch('/api/media-groups', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to update media group');
+    }
+
+    return response.json();
+  },
+
+  async deleteMediaGroup(id: string) {
+    const response = await fetch(`/api/media-groups?id=${id}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete media group');
+    }
+  },
+
+  async archiveMediaGroup(id: string) {
+    const response = await fetch(`/api/media-groups/archive`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to archive media group');
+    }
+
+    return response.json();
+  },
+
+  async restoreMediaGroup(id: string) {
+    const response = await fetch(`/api/media-groups/restore`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to restore media group');
+    }
+
+    return response.json();
+  },
+};
+
+// Main Component
+export default function MediaGroupsAdminPage() {
+  // State
+  const [mediaGroups, setMediaGroups] = useState<MediaGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   
-  if (!mediaGroup) {
-    return notFound();
-  }
+  // Filtering & Pagination
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'createdAt' | 'name' | 'status'>('createdAt');
+  const [sortOrder, setSortOrder] = useState<-1 | 1>(-1);
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+  
+  // Dialogs
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedMediaGroup, setSelectedMediaGroup] = useState<MediaGroup | null>(null);
+  
+  // Form Data
+  const [createFormData, setCreateFormData] = useState<CreateMediaGroupData>({
+    name: '',
+    slug: '',
+    description: '',
+    status: 'active',
+  });
+  
+  const [editFormData, setEditFormData] = useState<EditMediaGroupData>({
+    id: '',
+    name: '',
+    description: '',
+    status: 'active',
+  });
 
-  // Helper function to determine status badge color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      case 'inactive':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-      case 'archived':
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+  // Fetch media groups
+  const fetchMediaGroups = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const params: any = {
+        limit: rowsPerPage,
+        offset: (page - 1) * rowsPerPage,
+        sortBy,
+        sortOrder,
+      };
+      
+      if (statusFilter !== 'all') {
+        params.status = statusFilter;
+      }
+      
+      const response = await api.fetchMediaGroups(params);
+      setMediaGroups(response);
+      // If the API doesn't return total count, we'll estimate based on if we got full page
+      setTotalCount(response.length === rowsPerPage ? page * rowsPerPage + 1 : page * rowsPerPage);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load media groups');
+      setSnackbar({
+        open: true,
+        message: 'Failed to load media groups',
+        severity: 'error',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, page, rowsPerPage, sortBy, sortOrder]);
+
+  // Initial load
+  useEffect(() => {
+    fetchMediaGroups();
+  }, [fetchMediaGroups]);
+
+  // Handlers
+  const handleCreateSubmit = async () => {
+    try {
+      await api.createMediaGroup(createFormData);
+      setCreateDialogOpen(false);
+      setCreateFormData({
+        name: '',
+        slug: '',
+        description: '',
+        status: 'active',
+      });
+      fetchMediaGroups();
+      setSnackbar({
+        open: true,
+        message: 'Media group created successfully',
+        severity: 'success',
+      });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : 'Failed to create media group',
+        severity: 'error',
+      });
     }
   };
 
+  const handleEditSubmit = async () => {
+    if (!selectedMediaGroup) return;
+    
+    try {
+      await api.updateMediaGroup(editFormData);
+      setEditDialogOpen(false);
+      fetchMediaGroups();
+      setSnackbar({
+        open: true,
+        message: 'Media group updated successfully',
+        severity: 'success',
+      });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : 'Failed to update media group',
+        severity: 'error',
+      });
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedMediaGroup) return;
+    
+    try {
+      await api.deleteMediaGroup(selectedMediaGroup._id);
+      setDeleteDialogOpen(false);
+      fetchMediaGroups();
+      setSnackbar({
+        open: true,
+        message: 'Media group deleted successfully',
+        severity: 'success',
+      });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : 'Failed to delete media group',
+        severity: 'error',
+      });
+    }
+  };
+
+  const handleArchive = async (id: string) => {
+    try {
+      await api.archiveMediaGroup(id);
+      fetchMediaGroups();
+      setSnackbar({
+        open: true,
+        message: 'Media group archived',
+        severity: 'success',
+      });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : 'Failed to archive media group',
+        severity: 'error',
+      });
+    }
+  };
+
+  const handleRestore = async (id: string) => {
+    try {
+      await api.restoreMediaGroup(id);
+      fetchMediaGroups();
+      setSnackbar({
+        open: true,
+        message: 'Media group restored',
+        severity: 'success',
+      });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err instanceof Error ? err.message : 'Failed to restore media group',
+        severity: 'error',
+      });
+    }
+  };
+
+  const handleSort = (field: 'createdAt' | 'name' | 'status') => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 1 ? -1 : 1);
+    } else {
+      setSortBy(field);
+      setSortOrder(-1);
+    }
+  };
+
+  // Status Chip Color
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return 'bg-green-100 text-green-800';
+      case 'inactive': return 'bg-yellow-100 text-yellow-800';
+      case 'archived': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // Format Date
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  // Generate slug from name
+  const generateSlug = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  };
+
+  // Close snackbar
+  const closeSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
+  // Render
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-950">
-      {/* Navigation Bar */}
-      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
-        <div className="container mx-auto px-4 md:px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              {mediaGroup.logoUrl && (
-                <div className="relative w-10 h-10">
-                  <Image
-                    src={mediaGroup.logoUrl}
-                    alt={`${mediaGroup.name} Logo`}
-                    fill
-                    className="object-contain"
-                    sizes="40px"
-                  />
-                </div>
-              )}
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-                  {mediaGroup.name}
-                </h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Media Group</p>
+    <div className="p-6">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Media Groups</h1>
+        <button
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center gap-2"
+          onClick={() => setCreateDialogOpen(true)}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 3a1 1 0 00-1 1v5H4a1 1 0 100 2h5v5a1 1 0 102 0v-5h5a1 1 0 100-2h-5V4a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          Add Media Group
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-lg shadow mb-6 p-4">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+          <div className="md:col-span-4">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
               </div>
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(mediaGroup.status)}`}>
-                {mediaGroup.status.charAt(0).toUpperCase() + mediaGroup.status.slice(1)}
-              </span>
+              <input
+                type="text"
+                placeholder="Search media groups..."
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-            
-            <div className="flex items-center gap-4">
-              <Link
-                href="/admin"
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+          </div>
+          <div className="md:col-span-3">
+            <select
+              className="w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div className="md:col-span-2">
+            <select
+              className="w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={rowsPerPage}
+              onChange={(e) => {
+                setRowsPerPage(Number(e.target.value));
+                setPage(1);
+              }}
+            >
+              <option value="5">5 rows</option>
+              <option value="10">10 rows</option>
+              <option value="20">20 rows</option>
+              <option value="50">50 rows</option>
+            </select>
+          </div>
+          <div className="md:col-span-3">
+            <div className="flex gap-2">
+              <button
+                className="border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-md flex items-center gap-2"
+                onClick={fetchMediaGroups}
+                disabled={loading}
               >
-                <Shield className="h-4 w-4" />
-                Admin Dashboard
-              </Link>
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </button>
+              <button
+                className="border border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-md flex items-center gap-2"
+                onClick={() => {
+                  setStatusFilter('all');
+                  setSearchTerm('');
+                  setPage(1);
+                }}
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                Clear Filters
+              </button>
             </div>
           </div>
         </div>
-      </nav>
+      </div>
 
-      {/* Hero Section */}
-      <div 
-        className="relative overflow-hidden"
-        style={{
-          backgroundColor: mediaGroup.branding?.primaryColor || '#2563eb',
-          backgroundImage: mediaGroup.branding?.primaryColor && mediaGroup.branding?.secondaryColor 
-            ? `linear-gradient(135deg, ${mediaGroup.branding.primaryColor} 0%, ${mediaGroup.branding.secondaryColor} 100%)`
-            : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        }}
-      >
-        <div className="absolute inset-0 bg-black/20" />
-        <div className="relative container mx-auto px-4 md:px-6 py-12 md:py-20">
-          <div className="max-w-4xl mx-auto text-center">
-            <div className="flex flex-col items-center gap-6">
-              {mediaGroup.logoUrl && (
-                <div className="relative w-32 h-32 md:w-48 md:h-48 bg-white/10 backdrop-blur-sm rounded-full p-4 shadow-2xl">
-                  <Image
-                    src={mediaGroup.logoUrl}
-                    alt={`${mediaGroup.name} Logo`}
-                    fill
-                    className="object-contain p-2"
-                    sizes="(max-width: 768px) 128px, 192px"
-                  />
-                </div>
+      {/* Media Groups Table */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <button
+                    className="flex items-center gap-1 hover:text-gray-700"
+                    onClick={() => handleSort('name')}
+                  >
+                    Name
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                    </svg>
+                    {sortBy === 'name' && (
+                      <span className="text-xs">
+                        {sortOrder === 1 ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Slug
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Description
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <button
+                    className="flex items-center gap-1 hover:text-gray-700"
+                    onClick={() => handleSort('status')}
+                  >
+                    Status
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                    </svg>
+                    {sortBy === 'status' && (
+                      <span className="text-xs">
+                        {sortOrder === 1 ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <button
+                    className="flex items-center gap-1 hover:text-gray-700"
+                    onClick={() => handleSort('createdAt')}
+                  >
+                    Created
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                    </svg>
+                    {sortBy === 'createdAt' && (
+                      <span className="text-xs">
+                        {sortOrder === 1 ? '↑' : '↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center">
+                    <div className="flex justify-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    </div>
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center">
+                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                      {error}
+                    </div>
+                  </td>
+                </tr>
+              ) : mediaGroups.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                    No media groups found
+                  </td>
+                </tr>
+              ) : (
+                mediaGroups.map((group) => (
+                  <tr key={group._id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        {group.logoUrl && (
+                          <img
+                            src={group.logoUrl}
+                            alt={group.name}
+                            className="h-10 w-10 rounded-md object-cover mr-3"
+                          />
+                        )}
+                        <div className="text-sm font-medium text-gray-900">
+                          {group.name}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-500">{group.slug}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-900 line-clamp-2 max-w-xs">
+                        {group.description || 'No description'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(group.status)}`}>
+                        {group.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(group.createdAt)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          className="text-blue-600 hover:text-blue-900 p-1"
+                          title="Edit"
+                          onClick={() => {
+                            setSelectedMediaGroup(group);
+                            setEditFormData({
+                              id: group._id,
+                              name: group.name,
+                              description: group.description || '',
+                              status: group.status,
+                              logoUrl: group.logoUrl,
+                              branding: group.branding,
+                              contactInfo: group.contactInfo,
+                            });
+                            setEditDialogOpen(true);
+                          }}
+                        >
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        
+                        {group.status === 'archived' ? (
+                          <button
+                            className="text-green-600 hover:text-green-900 p-1"
+                            title="Restore"
+                            onClick={() => handleRestore(group._id)}
+                          >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                            </svg>
+                          </button>
+                        ) : (
+                          <button
+                            className="text-yellow-600 hover:text-yellow-900 p-1"
+                            title="Archive"
+                            onClick={() => handleArchive(group._id)}
+                          >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                            </svg>
+                          </button>
+                        )}
+                        
+                        <button
+                          className="text-red-600 hover:text-red-900 p-1"
+                          title="Delete"
+                          onClick={() => {
+                            setSelectedMediaGroup(group);
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
-              
-              <div className="space-y-4">
-                <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full">
-                  <Building2 className="h-5 w-5 text-white" />
-                  <span className="text-white font-medium">Media Group</span>
-                </div>
-                
-                <h1 className="text-4xl md:text-6xl font-bold text-white mb-2">
-                  {mediaGroup.name}
-                </h1>
-                
-                {mediaGroup.description && (
-                  <p className="text-xl md:text-2xl text-white/90 mb-8 leading-relaxed max-w-3xl mx-auto">
-                    {mediaGroup.description}
-                  </p>
-                )}
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap gap-4 justify-center mt-8">
-              {mediaGroup.branding?.websiteUrl && (
-                <a
-                  href={mediaGroup.branding.websiteUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 bg-white text-gray-900 hover:bg-gray-100 px-6 py-3 rounded-lg font-semibold transition-all hover:scale-105"
-                >
-                  <Globe className="h-5 w-5" />
-                  Visit Website
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-              
-              <Link
-                href="/contact"
-                className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm text-white hover:bg-white/30 px-6 py-3 rounded-lg font-semibold transition-all hover:scale-105"
-              >
-                <Bell className="h-5 w-5" />
-                Contact Us
-              </Link>
-            </div>
-          </div>
+            </tbody>
+          </table>
         </div>
         
-        {/* Wave separator */}
-        <div className="absolute bottom-0 left-0 right-0">
-          <svg className="w-full h-12 text-gray-50 dark:text-gray-900" viewBox="0 0 1200 120" preserveAspectRatio="none">
-            <path d="M321.39,56.44c58-10.79,114.16-30.13,172-41.86,82.39-16.72,168.19-17.73,250.45-.39C823.78,31,906.67,72,985.66,92.83c70.05,18.48,146.53,26.09,214.34,3V0H0V27.35A600.21,600.21,0,0,0,321.39,56.44Z" fill="currentColor"></path>
-          </svg>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="container mx-auto px-4 md:px-6 -mt-2 pb-12">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column - Main Content */}
-          <div className="lg:col-span-2 space-y-8">
-            {/* Quick Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-shadow">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Established</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {new Date(mediaGroup.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })}
-                    </p>
-                  </div>
-                  <Calendar className="h-10 w-10 text-blue-500" />
-                </div>
-              </div>
-
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-shadow">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white capitalize">
-                      {mediaGroup.status}
-                    </p>
-                  </div>
-                  <div className={`p-2 rounded-full ${mediaGroup.status === 'active' ? 'bg-green-100 dark:bg-green-900' : 'bg-yellow-100 dark:bg-yellow-900'}`}>
-                    <Bell className="h-6 w-6 text-green-600 dark:text-green-400" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-shadow">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Last Updated</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {new Date(mediaGroup.updatedAt).toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </p>
-                  </div>
-                  <Edit className="h-10 w-10 text-purple-500" />
-                </div>
-              </div>
-            </div>
-
-            {/* About Section */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8 border border-gray-200 dark:border-gray-700">
-              <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-3">
-                <Building2 className="h-8 w-8 text-blue-500" />
-                About Our Media Group
-              </h2>
-              
-              <div className="space-y-6">
-                <div className="prose prose-lg dark:prose-invert max-w-none">
-                  {mediaGroup.description ? (
-                    <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-lg">
-                      {mediaGroup.description}
-                    </p>
-                  ) : (
-                    <div className="text-center py-8">
-                      <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-6 inline-block">
-                        <p className="text-gray-500 dark:text-gray-400 italic">
-                          No description provided for this media group.
-                        </p>
-                        <Link
-                          href="/admin"
-                          className="inline-flex items-center gap-2 mt-4 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                        >
-                          <Settings className="h-4 w-4" />
-                          Add description in admin panel
-                        </Link>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Media Channels */}
-                <div className="mt-8">
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
-                    <Megaphone className="h-6 w-6 text-blue-500" />
-                    Our Media Platforms
-                  </h3>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <Link
-                      href="/stations?type=radio"
-                      className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 rounded-2xl p-6 border border-blue-200 dark:border-blue-800 hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
-                    >
-                      <div className="absolute top-0 right-0 w-24 h-24 bg-blue-200 dark:bg-blue-800 rounded-full -translate-y-12 translate-x-12 group-hover:scale-125 transition-transform" />
-                      <div className="relative z-10">
-                        <div className="p-3 bg-blue-500 rounded-xl w-14 h-14 mb-6 group-hover:scale-110 transition-transform">
-                          <Radio className="h-8 w-8 text-white" />
-                        </div>
-                        <h4 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Radio Stations</h4>
-                        <p className="text-gray-600 dark:text-gray-400 mb-4">
-                          Live broadcasts, music, and talk shows
-                        </p>
-                        <span className="inline-flex items-center text-blue-600 dark:text-blue-400 font-medium">
-                          Explore Stations
-                          <svg className="w-4 h-4 ml-2 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                          </svg>
-                        </span>
-                      </div>
-                    </Link>
-
-                    <Link
-                      href="/stations?type=tv"
-                      className="group relative overflow-hidden bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/30 dark:to-purple-800/30 rounded-2xl p-6 border border-purple-200 dark:border-purple-800 hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
-                    >
-                      <div className="absolute top-0 right-0 w-24 h-24 bg-purple-200 dark:bg-purple-800 rounded-full -translate-y-12 translate-x-12 group-hover:scale-125 transition-transform" />
-                      <div className="relative z-10">
-                        <div className="p-3 bg-purple-500 rounded-xl w-14 h-14 mb-6 group-hover:scale-110 transition-transform">
-                          <Tv className="h-8 w-8 text-white" />
-                        </div>
-                        <h4 className="text-xl font-bold text-gray-900 dark:text-white mb-2">TV Channels</h4>
-                        <p className="text-gray-600 dark:text-gray-400 mb-4">
-                          Video content, news, and entertainment
-                        </p>
-                        <span className="inline-flex items-center text-purple-600 dark:text-purple-400 font-medium">
-                          Watch Now
-                          <svg className="w-4 h-4 ml-2 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                          </svg>
-                        </span>
-                      </div>
-                    </Link>
-
-                    <Link
-                      href="/content"
-                      className="group relative overflow-hidden bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 rounded-2xl p-6 border border-green-200 dark:border-green-800 hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
-                    >
-                      <div className="absolute top-0 right-0 w-24 h-24 bg-green-200 dark:bg-green-800 rounded-full -translate-y-12 translate-x-12 group-hover:scale-125 transition-transform" />
-                      <div className="relative z-10">
-                        <div className="p-3 bg-green-500 rounded-xl w-14 h-14 mb-6 group-hover:scale-110 transition-transform">
-                          <Newspaper className="h-8 w-8 text-white" />
-                        </div>
-                        <h4 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Digital Content</h4>
-                        <p className="text-gray-600 dark:text-gray-400 mb-4">
-                          Articles, news, blogs, and podcasts
-                        </p>
-                        <span className="inline-flex items-center text-green-600 dark:text-green-400 font-medium">
-                          Read More
-                          <svg className="w-4 h-4 ml-2 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                          </svg>
-                        </span>
-                      </div>
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column - Sidebar */}
-          <div className="space-y-8">
-            {/* Contact Card */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 sticky top-24">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 pb-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-                <Users className="h-6 w-6 text-blue-500" />
-                Contact Information
-              </h2>
-              
-              <div className="space-y-6">
-                {mediaGroup.contactInfo?.email ? (
-                  <div className="flex items-start gap-4 group">
-                    <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg group-hover:scale-110 transition-transform">
-                      <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Email</p>
-                      <a 
-                        href={`mailto:${mediaGroup.contactInfo.email}`}
-                        className="text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors font-medium break-all"
-                      >
-                        {mediaGroup.contactInfo.email}
-                      </a>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">
-                      No email provided
-                    </p>
-                  </div>
-                )}
-                
-                {mediaGroup.contactInfo?.phone ? (
-                  <div className="flex items-start gap-4 group">
-                    <div className="p-2 bg-green-100 dark:bg-green-900 rounded-lg group-hover:scale-110 transition-transform">
-                      <Phone className="h-5 w-5 text-green-600 dark:text-green-400" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Phone</p>
-                      <a 
-                        href={`tel:${mediaGroup.contactInfo.phone}`}
-                        className="text-gray-900 dark:text-white hover:text-green-600 dark:hover:text-green-400 transition-colors font-medium"
-                      >
-                        {mediaGroup.contactInfo.phone}
-                      </a>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">
-                      No phone number provided
-                    </p>
-                  </div>
-                )}
-                
-                {mediaGroup.contactInfo?.address ? (
-                  <div className="flex items-start gap-4 group">
-                    <div className="p-2 bg-purple-100 dark:bg-purple-900 rounded-lg group-hover:scale-110 transition-transform">
-                      <MapPin className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Address</p>
-                      <p className="text-gray-900 dark:text-white font-medium">
-                        {mediaGroup.contactInfo.address}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <p className="text-gray-500 dark:text-gray-400 text-sm">
-                      No address provided
-                    </p>
-                  </div>
-                )}
-              </div>
-              
-              <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 space-y-3">
-                <Link
-                  href="/admin"
-                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors group"
+        {/* Pagination */}
+        {mediaGroups.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-200">
+            <div className="flex justify-center">
+              <nav className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                  className="px-3 py-1 rounded-md border border-gray-300 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
                 >
-                  <div className="flex items-center gap-3">
-                    <Settings className="h-5 w-5 text-gray-500" />
-                    <span className="font-medium text-gray-900 dark:text-white">Admin Settings</span>
-                  </div>
-                  <svg className="w-4 h-4 text-gray-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </Link>
+                  First
+                </button>
+                <button
+                  onClick={() => setPage(Math.max(1, page - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 rounded-md border border-gray-300 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Previous
+                </button>
                 
-                {mediaGroup.branding?.websiteUrl && (
-                  <a
-                    href={mediaGroup.branding.websiteUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Globe className="h-5 w-5 text-blue-500" />
-                      <span className="font-medium text-blue-700 dark:text-blue-300">Official Website</span>
-                    </div>
-                    <ExternalLink className="h-4 w-4 text-blue-400" />
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {/* Brand Identity */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-                Brand Information
-              </h3>
-              
-              <div className="space-y-6">
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Media Group ID</p>
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 font-mono text-gray-900 dark:text-gray-300 text-sm truncate">
-                    {mediaGroup._id}
-                  </div>
-                </div>
+                <span className="px-3 py-1 text-sm text-gray-700">
+                  Page {page} of {Math.ceil(totalCount / rowsPerPage)}
+                </span>
                 
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">URL Slug</p>
-                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 font-mono text-gray-900 dark:text-gray-300">
-                    {mediaGroup.slug}
-                  </div>
-                </div>
-                
-                {(mediaGroup.branding?.primaryColor || mediaGroup.branding?.secondaryColor) && (
-                  <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Brand Colors</p>
-                    <div className="flex gap-4">
-                      {mediaGroup.branding.primaryColor && (
-                        <div className="flex-1">
-                          <div 
-                            className="h-12 rounded-lg mb-2 border border-gray-200 dark:border-gray-700"
-                            style={{ backgroundColor: mediaGroup.branding.primaryColor }}
-                          />
-                          <p className="text-xs font-medium text-center text-gray-900 dark:text-white">Primary</p>
-                          <p className="text-xs text-gray-500 font-mono text-center truncate">
-                            {mediaGroup.branding.primaryColor}
-                          </p>
-                        </div>
-                      )}
-                      
-                      {mediaGroup.branding.secondaryColor && (
-                        <div className="flex-1">
-                          <div 
-                            className="h-12 rounded-lg mb-2 border border-gray-200 dark:border-gray-700"
-                            style={{ backgroundColor: mediaGroup.branding.secondaryColor }}
-                          />
-                          <p className="text-xs font-medium text-center text-gray-900 dark:text-white">Secondary</p>
-                          <p className="text-xs text-gray-500 font-mono text-center truncate">
-                            {mediaGroup.branding.secondaryColor}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+                <button
+                  onClick={() => setPage(page + 1)}
+                  disabled={page >= Math.ceil(totalCount / rowsPerPage)}
+                  className="px-3 py-1 rounded-md border border-gray-300 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setPage(Math.ceil(totalCount / rowsPerPage))}
+                  disabled={page >= Math.ceil(totalCount / rowsPerPage)}
+                  className="px-3 py-1 rounded-md border border-gray-300 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Last
+                </button>
+              </nav>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Footer */}
-      <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-8">
-        <div className="container mx-auto px-4 md:px-6">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-3">
-              {mediaGroup.logoUrl && (
-                <div className="relative w-8 h-8">
-                  <Image
-                    src={mediaGroup.logoUrl}
-                    alt={`${mediaGroup.name} Logo`}
-                    fill
-                    className="object-contain"
-                    sizes="32px"
+      {/* Create Dialog */}
+      {createDialogOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b">
+              <h2 className="text-xl font-semibold">Create Media Group</h2>
+            </div>
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name *
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={createFormData.name}
+                    onChange={(e) => {
+                      setCreateFormData({
+                        ...createFormData,
+                        name: e.target.value,
+                        slug: generateSlug(e.target.value),
+                      });
+                    }}
+                    required
                   />
                 </div>
-              )}
-              <div>
-                <p className="font-bold text-gray-900 dark:text-white">{mediaGroup.name}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Media Group</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Slug *
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={createFormData.slug}
+                    onChange={(e) => setCreateFormData({
+                      ...createFormData,
+                      slug: e.target.value,
+                    })}
+                    required
+                  />
+                  <p className="mt-1 text-sm text-gray-500">URL-friendly identifier</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={3}
+                    value={createFormData.description}
+                    onChange={(e) => setCreateFormData({
+                      ...createFormData,
+                      description: e.target.value,
+                    })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Logo URL
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={createFormData.logoUrl || ''}
+                    onChange={(e) => setCreateFormData({
+                      ...createFormData,
+                      logoUrl: e.target.value,
+                    })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={createFormData.status}
+                    onChange={(e) => setCreateFormData({
+                      ...createFormData,
+                      status: e.target.value as 'active' | 'inactive' | 'archived',
+                    })}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </div>
               </div>
             </div>
-            
-            <div className="text-sm text-gray-500 dark:text-gray-400">
-              <p>© {new Date().getFullYear()} {mediaGroup.name}. All rights reserved.</p>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <Link
-                href="/admin"
-                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+            <div className="px-6 py-4 border-t flex justify-end gap-3">
+              <button
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                onClick={() => setCreateDialogOpen(false)}
               >
-                Admin Panel
-              </Link>
-              {mediaGroup.branding?.websiteUrl && (
-                <a
-                  href={mediaGroup.branding.websiteUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
-                >
-                  Website
-                </a>
-              )}
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                onClick={handleCreateSubmit}
+              >
+                Create
+              </button>
             </div>
           </div>
         </div>
-      </footer>
+      )}
+
+      {/* Edit Dialog */}
+      {editDialogOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b">
+              <h2 className="text-xl font-semibold">Edit Media Group</h2>
+            </div>
+            <div className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name *
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editFormData.name}
+                    onChange={(e) => setEditFormData({
+                      ...editFormData,
+                      name: e.target.value,
+                    })}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={3}
+                    value={editFormData.description}
+                    onChange={(e) => setEditFormData({
+                      ...editFormData,
+                      description: e.target.value,
+                    })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Logo URL
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editFormData.logoUrl || ''}
+                    onChange={(e) => setEditFormData({
+                      ...editFormData,
+                      logoUrl: e.target.value,
+                    })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={editFormData.status}
+                    onChange={(e) => setEditFormData({
+                      ...editFormData,
+                      status: e.target.value as 'active' | 'inactive' | 'archived',
+                    })}
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t flex justify-end gap-3">
+              <button
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                onClick={() => setEditDialogOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                onClick={handleEditSubmit}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteDialogOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="px-6 py-4 border-b">
+              <h2 className="text-xl font-semibold">Confirm Delete</h2>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-700">
+                Are you sure you want to delete "{selectedMediaGroup?.name}"? This action cannot be undone.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t flex justify-end gap-3">
+              <button
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                onClick={() => setDeleteDialogOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                onClick={handleDeleteConfirm}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snackbar */}
+      {snackbar.open && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <div className={`${
+            snackbar.severity === 'success' 
+              ? 'bg-green-50 border-green-200 text-green-800' 
+              : 'bg-red-50 border-red-200 text-red-800'
+          } border rounded-lg shadow-lg px-6 py-4 flex items-center justify-between min-w-[300px]`}>
+            <span>{snackbar.message}</span>
+            <button
+              onClick={closeSnackbar}
+              className="ml-4 text-gray-500 hover:text-gray-700"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

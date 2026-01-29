@@ -3,6 +3,8 @@ import { requireAuth } from "@/middleware/auth";
 import {
   listMediaGroups,
   createMediaGroup,
+  updateMediaGroup,
+  deleteMediaGroup,
 } from "@/services/mediaGroup.service";
 
 const ALLOWED_STATUS = ["active", "inactive", "archived"] as const;
@@ -14,13 +16,11 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
 
-
     const statusParam = searchParams.get("status");
     const limitParam = searchParams.get("limit");
     const offsetParam = searchParams.get("offset");
     const sortByParam = searchParams.get("sortBy");
     const sortOrderParam = searchParams.get("sortOrder");
-
 
     const status = ALLOWED_STATUS.includes(statusParam as any)
       ? (statusParam as "active" | "inactive" | "archived")
@@ -33,7 +33,6 @@ export async function GET(req: Request) {
     const sortOrder: 1 | -1 =
       sortOrderParam === "1" ? 1 : -1;
 
-
     const limit =
       limitParam && !Number.isNaN(Number(limitParam))
         ? Number(limitParam)
@@ -43,7 +42,6 @@ export async function GET(req: Request) {
       offsetParam && !Number.isNaN(Number(offsetParam))
         ? Number(offsetParam)
         : undefined;
-
 
     const mediaGroups = await listMediaGroups({
       status,
@@ -64,7 +62,6 @@ export async function GET(req: Request) {
   }
 }
 
-
 export async function POST(req: Request) {
   try {
     await connectDB();
@@ -83,4 +80,43 @@ export async function POST(req: Request) {
   }
 }
 
+export async function PATCH(req: Request) {
+  try {
+    await connectDB();
+    const user = requireAuth(req);
 
+    const body = await req.json();
+    const mediaGroup = await updateMediaGroup(body);
+
+    return Response.json(mediaGroup, { status: 200 });
+  } catch (err: any) {
+    if (err.message === "Unauthorized") {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    return Response.json({ error: err.message }, { status: 400 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    await connectDB();
+    const user = requireAuth(req);
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    
+    if (!id) {
+      return Response.json({ error: "ID is required" }, { status: 400 });
+    }
+
+    const mediaGroup = await deleteMediaGroup(id);
+    return Response.json(mediaGroup, { status: 200 });
+  } catch (err: any) {
+    if (err.message === "Unauthorized") {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    return Response.json({ error: err.message }, { status: 400 });
+  }
+}

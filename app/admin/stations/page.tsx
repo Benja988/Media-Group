@@ -30,19 +30,6 @@ export default function StationsManagement() {
         fetchStations();
     }, [filter, typeFilter]);
 
-    /* const fetchStations = async () => {
-        try {
-            const response = await fetch('/api/stations');
-            if (response.ok) {
-                const data = await response.json();
-                setStations(data.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch stations:', error);
-        } finally {
-            setLoading(false);
-        }
-    }; */
 
     const fetchStations = async () => {
         try {
