@@ -1,312 +1,780 @@
-// services/content.services.ts
+import mongoose, { Types } from 'mongoose';
+import { Tag, Category, Station, Channel, Content } from '@/lib/models';
+import { redis } from '@/config/redis';
+import { generateSlug } from '@/utils/helpers';
+import { 
+  ContentCreateDto, 
+  ContentListResponse, 
+  ContentMetrics, 
+  ContentQueryDto, 
+  ContentResponse, 
+  ContentStats, 
+  ContentUpdateDto 
+} from '@/types/content.types';
+import { AppError } from '@/utils/errors';
+import { engagementService } from './engagement.service';
 
-import { Content } from "@/lib/models";
-import { Types } from "mongoose";
-import { logger } from "@/lib/logger";
+// Cache configuration
+const CACHE_TTL = 3600; // 1 hour
+const POPULAR_CACHE_TTL = 1800; // 30 minutes
+const CACHE_PREFIX = 'content:';
+const LIST_CACHE_PREFIX = 'content_list:';
 
-
-/* ----------------------------------
-   Types
------------------------------------ */
-export interface CreateContentInput {
-  type: "news" | "podcast" | "video" | "show";
-  title: string;
-  description?: string;
-  mediaUrl?: string;
-  thumbnailUrl?: string;
-  duration?: number;
-  stationId: Types.ObjectId;
-  channelId?: Types.ObjectId;
-  authorId: Types.ObjectId;
-  categoryIds?: Types.ObjectId[];
-  tagIds?: Types.ObjectId[];
-  status?: "draft" | "scheduled" | "published";
-  scheduledFor?: Date;
+// Define types for aggregation results
+interface AggregationResult {
+  _id: string;
+  count: number;
 }
 
-export interface UpdateContentInput extends Partial<CreateContentInput> {
-  id: Types.ObjectId;
-  slug?: string;
+interface ByTypeResult extends AggregationResult {
+  _id: 'news' | 'podcast' | 'video' | 'show';
 }
 
-export interface ListContentParams {
-  stationId?: Types.ObjectId;
-  channelId?: Types.ObjectId;
-  authorId?: Types.ObjectId;
-  type?: string;
-  status?: string;
-  categoryId?: Types.ObjectId;
-  tagId?: Types.ObjectId;
-  limit?: number;
-  offset?: number;
-  sortBy?: string;
-  sortOrder?: 1 | -1;
-}
+export class ContentService {
+  /**
+   * Create new content
+   */
+  async createContent(data: ContentCreateDto): Promise<ContentResponse> {
+    try {
+      // Generate slug if not provided
+      const slug = data.slug || generateSlug(data.title);
+      
+      // Check uniqueness of slug per station
+      const existingContent = await Content.findOne({
+        slug,
+        stationId: data.stationId || null
+      });
 
+      if (existingContent) {
+        throw new AppError('Content with this slug already exists', 400);
+      }
 
+      // Validate relationships exist
+      await this.validateRelationships(data);
 
+      // Set publishedAt if status is published
+      if (data.status === 'published' && !data.publishedAt) {
+        data.publishedAt = new Date();
+      }
 
-/* ----------------------------------
-   Helpers
------------------------------------ */
+      const content = await Content.create({
+        ...data,
+        slug,
+        metrics: {
+          views: 0,
+          likes: 0
+        }
+      });
 
-function generateSlug(title: string) {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+      // Invalidate relevant caches
+      await this.invalidateContentCaches(content);
 
-async function ensureUniqueSlug(
-  slug: string,
-  stationId: Types.ObjectId,
-  excludeId?: Types.ObjectId
-) {
-  const query: any = { slug, stationId };
-  if (excludeId) query._id = { $ne: excludeId };
-
-  const exists = await Content.findOne(query);
-  if (exists) {
-    throw new Error("Content with this title already exists in this station");
-  }
-}
-
-/* ----------------------------------
-   Create
------------------------------------ */
-
-export async function createContent(input: CreateContentInput) {
-  const slug = generateSlug(input.title);
-  await ensureUniqueSlug(slug, input.stationId);
-
-  const content = await Content.create({
-    ...input,
-    slug,
-    status: input.status ?? "draft",
-  });
-
-  logger.info("Content created", { id: content._id });
-  return content;
-}
-
-/* ----------------------------------
-   Read
------------------------------------ */
-
-export async function getContentById(id: Types.ObjectId) {
-  return Content.findById(id)
-    .populate("stationId", "name")
-    .populate("channelId", "name")
-    .populate("authorId", "name email")
-    .populate("categoryIds", "name")
-    .populate("tagIds", "name")
-    .lean();
-}
-
-export async function getContentBySlug(
-  slug: string,
-  stationId: Types.ObjectId
-) {
-  return Content.findOne({ slug, stationId, status: "published" })
-    .populate("authorId", "name")
-    .populate("categoryIds", "name")
-    .lean();
-}
-
-/* ----------------------------------
-   Update
------------------------------------ */
-
-export async function updateContent(input: UpdateContentInput) {
-  const { id, ...updateData } = input;
-
-  if (updateData.title) {
-    const slug = generateSlug(updateData.title);
-    const content = await Content.findById(id).select("stationId");
-    if (!content) throw new Error("Content not found");
-
-    await ensureUniqueSlug(slug, content.stationId, id);
-    updateData.slug = slug;
-  }
-
-  const updated = await Content.findByIdAndUpdate(id, updateData, {
-    new: true,
-  });
-
-  if (!updated) throw new Error("Content not found");
-
-  logger.info("Content updated", { id });
-  return updated;
-}
-
-/* ----------------------------------
-   Delete
------------------------------------ */
-
-export async function deleteContent(id: Types.ObjectId) {
-  const deleted = await Content.findByIdAndDelete(id);
-  if (!deleted) throw new Error("Content not found");
-
-  logger.info("Content deleted", { id });
-  return deleted;
-}
-
-/* ----------------------------------
-   Listing & Feed
------------------------------------ */
-
-export async function listContent({
-  stationId,
-  channelId,
-  authorId,
-  type,
-  status,
-  categoryId,
-  tagId,
-  limit = 20,
-  offset = 0,
-  sortBy = "createdAt",
-  sortOrder = -1,
-}: ListContentParams = {}) {
-  const filter: any = {
-    ...(stationId && { stationId }),
-    ...(channelId && { channelId }),
-    ...(authorId && { authorId }),
-    ...(type && { type }),
-    ...(status && { status }),
-    ...(categoryId && { categoryIds: categoryId }),
-    ...(tagId && { tagIds: tagId }),
-  };
-
-  const [items, total] = await Promise.all([
-    Content.find(filter)
-      .populate("authorId", "name")
-      .sort({ [sortBy]: sortOrder })
-      .limit(limit)
-      .skip(offset)
-      .lean(),
-    Content.countDocuments(filter),
-  ]);
-
-  return {
-    items,
-    pagination: {
-      total,
-      limit,
-      offset,
-      hasMore: offset + limit < total,
-    },
-  };
-}
-
-export async function getPublishedFeed({
-  stationId,
-  type,
-  limit = 20,
-}: {
-  stationId: Types.ObjectId;
-  type?: string;
-  limit?: number;
-}) {
-  return Content.find({
-    stationId,
-    status: "published",
-    ...(type && { type }),
-  })
-    .sort({ publishedAt: -1 })
-    .limit(limit)
-    .lean();
-}
-
-/* ----------------------------------
-   Publishing
------------------------------------ */
-
-export async function publishContent(contentId: Types.ObjectId) {
-  const content = await Content.findById(contentId);
-
-  if (!content) throw new Error("Content not found");
-  if (content.status === "published") {
-    throw new Error("Content already published");
-  }
-
-  if (
-    ["video", "podcast"].includes(content.type) &&
-    !content.mediaUrl
-  ) {
-    throw new Error("Media URL is required before publishing");
-  }
-
-  content.status = "published";
-  content.publishedAt = new Date();
-  content.scheduledFor = undefined;
-
-  return content.save();
-}
-
-/**
- * Cron job friendly
- */
-export async function publishScheduledContent() {
-  const now = new Date();
-
-  const result = await Content.updateMany(
-    {
-      status: "scheduled",
-      scheduledFor: { $lte: now },
-    },
-    {
-      $set: {
-        status: "published",
-        publishedAt: now,
-      },
-      $unset: { scheduledFor: "" },
+      return await this.enrichContentResponse(content);
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to create content', 500, errorMessage);
     }
-  );
+  }
 
-  logger.info("Scheduled content published", { count: result.modifiedCount });
-  return result.modifiedCount;
+  /**
+   * Get content by ID with caching
+   */
+  async getContentById(
+    id: string, 
+    includeEngagement: boolean = false,
+    incrementView: boolean = true
+  ): Promise<ContentResponse> {
+    try {
+      const cacheKey = `${CACHE_PREFIX}${id}`;
+      
+      // Try cache first
+      const cachedContent = await redis.get(cacheKey);
+      if (cachedContent) {
+        const content = JSON.parse(cachedContent);
+        
+        // Increment view async if needed
+        if (incrementView) {
+          this.incrementViewCount(id);
+        }
+        
+        if (includeEngagement) {
+          return await this.enrichWithEngagement(content, id);
+        }
+        return content;
+      }
+
+      // Fetch from database
+      const content = await Content.findById(id);
+      if (!content) {
+        throw new AppError('Content not found', 404);
+      }
+
+      // Increment view async if needed
+      if (incrementView) {
+        this.incrementViewCount(id);
+      }
+
+      const enrichedContent = await this.enrichContentResponse(content);
+      
+      // Cache the result
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(enrichedContent));
+
+      if (includeEngagement) {
+        return await this.enrichWithEngagement(enrichedContent, id);
+      }
+
+      return enrichedContent;
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to fetch content', 500, errorMessage);
+    }
+  }
+
+  /**
+   * Get content by slug
+   */
+  async getContentBySlug(
+    slug: string, 
+    stationId?: string,
+    includeEngagement: boolean = false
+  ): Promise<ContentResponse> {
+    try {
+      const cacheKey = `${CACHE_PREFIX}slug:${slug}:station:${stationId || 'global'}`;
+      
+      const cachedContent = await redis.get(cacheKey);
+      if (cachedContent) {
+        const content = JSON.parse(cachedContent);
+        
+        // Increment view async
+        this.incrementViewCount(content._id);
+        
+        if (includeEngagement) {
+          return await this.enrichWithEngagement(content, content._id);
+        }
+        return content;
+      }
+
+      const query: any = { slug, stationId: stationId || null };
+      const content = await Content.findOne(query);
+      
+      if (!content) {
+        throw new AppError('Content not found', 404);
+      }
+
+      // Increment view async
+      this.incrementViewCount(content._id);
+
+      const enrichedContent = await this.enrichContentResponse(content);
+      
+      // Cache the result
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(enrichedContent));
+
+      if (includeEngagement) {
+        return await this.enrichWithEngagement(enrichedContent, content._id);
+      }
+
+      return enrichedContent;
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to fetch content', 500, errorMessage);
+    }
+  }
+
+  /**
+   * Get content list with filtering, pagination, and caching
+   */
+  async getContentList(query: ContentQueryDto): Promise<ContentListResponse> {
+    try {
+      const cacheKey = this.generateListCacheKey(query);
+      
+      // Try cache first
+      const cachedResult = await redis.get(cacheKey);
+      if (cachedResult) {
+        return JSON.parse(cachedResult);
+      }
+
+      const {
+        type,
+        status,
+        stationId,
+        channelId,
+        authorId,
+        categoryId,
+        tagId,
+        search,
+        sortBy = 'publishedAt',
+        sortOrder = 'desc',
+        page = 1,
+        limit = 20,
+        includeDrafts = false
+      } = query;
+
+      const filter: any = {};
+
+      // Apply filters
+      if (type) filter.type = type;
+      if (stationId) filter.stationId = new Types.ObjectId(stationId);
+      if (channelId) filter.channelId = new Types.ObjectId(channelId);
+      if (authorId) filter.authorId = new Types.ObjectId(authorId);
+      if (categoryId) filter.categoryIds = new Types.ObjectId(categoryId);
+      if (tagId) filter.tagIds = new Types.ObjectId(tagId);
+
+      // Status filter with special handling for drafts
+      if (status) {
+        filter.status = status;
+      } else if (!includeDrafts) {
+        filter.status = { $ne: 'draft' };
+      }
+
+      // Search filter
+      if (search) {
+        filter.$or = [
+          { title: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } }
+        ];
+      }
+
+      // Published/scheduled logic
+      if (!includeDrafts) {
+        filter.$or = [
+          { status: 'published' },
+          { 
+            status: 'scheduled',
+            scheduledFor: { $lte: new Date() }
+          }
+        ];
+      }
+
+      // Calculate pagination
+      const skip = (page - 1) * limit;
+
+      // Build sort
+      const sort: any = {};
+      sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+      // Execute query with total count
+      const [content, total] = await Promise.all([
+        Content.find(filter)
+          .sort(sort)
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Content.countDocuments(filter)
+      ]);
+
+      // Enrich content with relationships
+      const enrichedContent = await Promise.all(
+        content.map((item: any) => this.enrichContentResponse(item))
+      );
+
+      const result: ContentListResponse = {
+        data: enrichedContent,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+          hasNext: page * limit < total,
+          hasPrev: page > 1
+        },
+        filters: {
+          type,
+          status,
+          stationId,
+          search
+        }
+      };
+
+      // Cache the result with shorter TTL for dynamic lists
+      await redis.setex(cacheKey, 300, JSON.stringify(result));
+
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to fetch content list', 500, errorMessage);
+    }
+  }
+
+  /**
+   * Update content
+   */
+  async updateContent(id: string, data: ContentUpdateDto): Promise<ContentResponse> {
+    try {
+      const content = await Content.findById(id);
+      if (!content) {
+        throw new AppError('Content not found', 404);
+      }
+
+      // Validate relationships exist if being updated
+      const validationData: Partial<ContentCreateDto> = {};
+      
+      if (data.categoryIds || data.tagIds) {
+        validationData.categoryIds = data.categoryIds || content.categoryIds;
+        validationData.tagIds = data.tagIds || content.tagIds;
+        
+        // If stationId or channelId are being updated, include them
+        if (data.stationId !== undefined) {
+          validationData.stationId = data.stationId;
+        } else if (content.stationId) {
+          validationData.stationId = content.stationId.toString();
+        }
+        
+        if (data.channelId !== undefined) {
+          validationData.channelId = data.channelId;
+        } else if (content.channelId) {
+          validationData.channelId = content.channelId.toString();
+        }
+        
+        await this.validateRelationships(validationData as ContentCreateDto);
+      }
+
+      // Handle status changes
+      if (data.status && data.status !== content.status) {
+        if (data.status === 'published' && !data.publishedAt) {
+          data.publishedAt = new Date();
+        }
+      }
+
+      // Update content
+      Object.assign(content, data);
+      await content.save();
+
+      // Invalidate caches
+      await this.invalidateContentCaches(content);
+
+      return await this.enrichContentResponse(content);
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to update content', 500, errorMessage);
+    }
+  }
+
+  /**
+   * Delete content
+   */
+  async deleteContent(id: string): Promise<void> {
+    try {
+      const content = await Content.findById(id);
+      if (!content) {
+        throw new AppError('Content not found', 404);
+      }
+
+      // Store cache keys for invalidation
+      const cacheKeys = [
+        `${CACHE_PREFIX}${id}`,
+        `${CACHE_PREFIX}slug:${content.slug}:station:${content.stationId || 'global'}`
+      ];
+
+      // Delete content
+      await content.deleteOne();
+
+      // Invalidate caches
+      await Promise.all([
+        ...cacheKeys.map(key => redis.del(key)),
+        this.invalidateListCaches(),
+        redis.del(`content:stats:${content.type}`)
+      ]);
+
+      // Clean up engagements (optional, based on business logic)
+      // await engagementService.deleteEngagementsByContentId(id);
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to delete content', 500, errorMessage);
+    }
+  }
+
+  /**
+   * Get content metrics
+   */
+  async getContentMetrics(id: string): Promise<ContentMetrics> {
+    try {
+      const cacheKey = `content:metrics:${id}`;
+      
+      const cachedMetrics = await redis.get(cacheKey);
+      if (cachedMetrics) {
+        return JSON.parse(cachedMetrics);
+      }
+
+      const [content, engagementStats] = await Promise.all([
+        Content.findById(id).select('metrics').lean(),
+        engagementService.getContentEngagementStats(id)
+      ]);
+
+      if (!content) {
+        throw new AppError('Content not found', 404);
+      }
+
+      // Access comments and shares safely
+      const comments = engagementStats.aggregated?.['comment']?.count || 0;
+      const shares = engagementStats.aggregated?.['share']?.count || 0;
+
+      const metrics: ContentMetrics = {
+        views: content.metrics?.views || 0,
+        likes: content.metrics?.likes || 0,
+        comments,
+        shares,
+        engagementRate: this.calculateEngagementRate(content.metrics, { comments, shares })
+      };
+
+      // Cache with shorter TTL for frequently changing data
+      await redis.setex(cacheKey, 300, JSON.stringify(metrics));
+
+      return metrics;
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to fetch content metrics', 500, errorMessage);
+    }
+  }
+
+  /**
+   * Get content statistics
+   */
+  async getContentStats(type?: string): Promise<ContentStats> {
+    try {
+      const cacheKey = `content:stats:${type || 'all'}`;
+      
+      const cachedStats = await redis.get(cacheKey);
+      if (cachedStats) {
+        return JSON.parse(cachedStats);
+      }
+
+      const filter = type ? { type } : {};
+
+      const [
+        total,
+        published,
+        scheduled,
+        drafts,
+        byType,
+        recentActivity
+      ] = await Promise.all([
+        Content.countDocuments(filter),
+        Content.countDocuments({ ...filter, status: 'published' }),
+        Content.countDocuments({ ...filter, status: 'scheduled' }),
+        Content.countDocuments({ ...filter, status: 'draft' }),
+        Content.aggregate<ByTypeResult>([
+          { $match: filter },
+          { $group: { _id: '$type', count: { $sum: 1 } } }
+        ]),
+        Content.aggregate([
+          { $match: filter },
+          { $sort: { updatedAt: -1 } },
+          { $limit: 10 },
+          { $project: { _id: 1, title: 1, type: 1, status: 1, updatedAt: 1 } }
+        ])
+      ]);
+
+      const stats: ContentStats = {
+        total,
+        published,
+        scheduled,
+        drafts,
+        byType: byType.reduce((acc: Record<string, number>, curr: ByTypeResult) => {
+          acc[curr._id] = curr.count;
+          return acc;
+        }, {}),
+        recentActivity,
+        updatedAt: new Date()
+      };
+
+      // Cache stats for 5 minutes
+      await redis.setex(cacheKey, 300, JSON.stringify(stats));
+
+      return stats;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to fetch content statistics', 500, errorMessage);
+    }
+  }
+
+  /**
+   * Get popular content
+   */
+  async getPopularContent(
+    type?: string,
+    limit: number = 10,
+    timeframe: 'day' | 'week' | 'month' = 'week'
+  ): Promise<ContentResponse[]> {
+    try {
+      const cacheKey = `content:popular:${type || 'all'}:${timeframe}:${limit}`;
+      
+      const cachedContent = await redis.get(cacheKey);
+      if (cachedContent) {
+        return JSON.parse(cachedContent);
+      }
+
+      const dateFilter = this.getDateFilter(timeframe);
+
+      const popularContent = await Content.aggregate([
+        {
+          $match: {
+            status: 'published',
+            ...(type && { type }),
+            ...(dateFilter && { publishedAt: dateFilter })
+          }
+        },
+        {
+          $addFields: {
+            engagementScore: {
+              $add: [
+                { $multiply: ['$metrics.views', 0.1] },
+                { $multiply: ['$metrics.likes', 1] }
+              ]
+            }
+          }
+        },
+        { $sort: { engagementScore: -1 } },
+        { $limit: limit }
+      ]);
+
+      const enrichedContent = await Promise.all(
+        popularContent.map((item: any) => this.enrichContentResponse(item))
+      );
+
+      // Cache popular content
+      await redis.setex(cacheKey, POPULAR_CACHE_TTL, JSON.stringify(enrichedContent));
+
+      return enrichedContent;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to fetch popular content', 500, errorMessage);
+    }
+  }
+
+  /**
+   * Batch get content by IDs
+   */
+  async getContentBatch(ids: string[]): Promise<ContentResponse[]> {
+    try {
+      const cacheKeys = ids.map(id => `${CACHE_PREFIX}${id}`);
+      const cachedResults = await redis.mget(cacheKeys);
+      
+      const resultMap = new Map<string, ContentResponse>();
+      const idsToFetch: string[] = [];
+
+      // Process cached results
+      cachedResults.forEach((cached: string | null, index: number) => {
+        if (cached) {
+          const content = JSON.parse(cached);
+          resultMap.set(ids[index], content);
+        } else {
+          idsToFetch.push(ids[index]);
+        }
+      });
+
+      // Fetch missing content from database
+      if (idsToFetch.length > 0) {
+        const objectIds = idsToFetch.map(id => new Types.ObjectId(id));
+        const contents = await Content.find({ _id: { $in: objectIds } }).lean();
+        
+        // Cache and store fetched content
+        await Promise.all(
+          contents.map(async (content: any) => {
+            const enriched = await this.enrichContentResponse(content);
+            resultMap.set(content._id.toString(), enriched);
+            await redis.setex(
+              `${CACHE_PREFIX}${content._id}`,
+              CACHE_TTL,
+              JSON.stringify(enriched)
+            );
+          })
+        );
+      }
+
+      // Return in original order
+      return ids.map(id => resultMap.get(id)).filter(Boolean) as ContentResponse[];
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new AppError('Failed to batch fetch content', 500, errorMessage);
+    }
+  }
+
+  // Private helper methods
+
+ private async validateRelationships(data: ContentCreateDto): Promise<void> {
+  const validationPromises: Promise<void>[] = [];
+
+  if (data.stationId) {
+    validationPromises.push(
+      Station.findById(data.stationId).then((station) => {
+        if (!station) throw new AppError('Station not found', 400);
+      })
+    );
+  }
+
+  if (data.channelId) {
+    validationPromises.push(
+      Channel.findById(data.channelId).then((channel) => {
+        if (!channel) throw new AppError('Channel not found', 400);
+      })
+    );
+  }
+
+  // Fix: Add proper check for optional arrays
+  if (data.categoryIds && data.categoryIds.length > 0) {
+    validationPromises.push(
+      Category.countDocuments({ _id: { $in: data.categoryIds } })
+        .then((count: number) => {
+          if (count !== data.categoryIds!.length) {
+            throw new AppError('One or more categories not found', 400);
+          }
+        })
+    );
+  }
+
+  // Fix: Add proper check for optional arrays
+  if (data.tagIds && data.tagIds.length > 0) {
+    validationPromises.push(
+      Tag.countDocuments({ _id: { $in: data.tagIds } })
+        .then((count: number) => {
+          if (count !== data.tagIds!.length) {
+            throw new AppError('One or more tags not found', 400);
+          }
+        })
+    );
+  }
+
+  await Promise.all(validationPromises);
 }
 
-/* ----------------------------------
-   Metrics
------------------------------------ */
+  private async enrichContentResponse(content: any): Promise<ContentResponse> {
+    const [categories, tags, station, channel, author] = await Promise.all([
+      content.categoryIds?.length 
+        ? Category.find({ _id: { $in: content.categoryIds } }).select('name slug').lean()
+        : [],
+      content.tagIds?.length
+        ? Tag.find({ _id: { $in: content.tagIds } }).select('name slug').lean()
+        : [],
+      content.stationId 
+        ? Station.findById(content.stationId).select('name slug').lean()
+        : null,
+      content.channelId
+        ? Channel.findById(content.channelId).select('name slug').lean()
+        : null,
+      content.authorId
+        ? mongoose.model('User').findById(content.authorId).select('name email').lean()
+        : null
+    ]);
 
-export async function incrementViews(contentId: Types.ObjectId) {
-  return Content.findByIdAndUpdate(
-    contentId,
-    { $inc: { "metrics.views": 1 } },
-    { new: true }
-  );
+    return {
+      ...content,
+      categories,
+      tags,
+      station,
+      channel,
+      author,
+      _id: content._id.toString()
+    };
+  }
+
+  private async enrichWithEngagement(content: ContentResponse, contentId: string): Promise<ContentResponse> {
+    const engagement = await engagementService.getContentEngagement(contentId);
+    return {
+      ...content,
+      engagement
+    };
+  }
+
+  private async incrementViewCount(contentId: string): Promise<void> {
+    try {
+      // Increment in database
+      await Content.findByIdAndUpdate(contentId, {
+        $inc: { 'metrics.views': 1 }
+      });
+
+      // Update cache asynchronously
+      const cacheKey = `${CACHE_PREFIX}${contentId}`;
+      const cachedContent = await redis.get(cacheKey);
+      if (cachedContent) {
+        const content = JSON.parse(cachedContent);
+        content.metrics.views += 1;
+        await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(content));
+      }
+
+      // Invalidate metrics cache
+      await redis.del(`content:metrics:${contentId}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Failed to increment view count:', errorMessage);
+    }
+  }
+
+  private calculateEngagementRate(contentMetrics: any, engagementStats: { comments: number; shares: number }): number {
+    const views = contentMetrics?.views || 1; // Avoid division by zero
+    const engagements = (contentMetrics?.likes || 0) + 
+                       (engagementStats.comments || 0) + 
+                       (engagementStats.shares || 0);
+    
+    return Math.round((engagements / views) * 100);
+  }
+
+  private generateListCacheKey(query: ContentQueryDto): string {
+    const keyParts = [
+      LIST_CACHE_PREFIX,
+      query.type || 'all',
+      query.status || 'all',
+      query.stationId || 'all',
+      query.channelId || 'all',
+      query.authorId || 'all',
+      query.categoryId || 'all',
+      query.tagId || 'all',
+      query.search || 'all',
+      query.sortBy || 'publishedAt',
+      query.sortOrder || 'desc',
+      query.page || 1,
+      query.limit || 20,
+      query.includeDrafts ? 'drafts' : 'nodrafts'
+    ];
+    
+    return keyParts.join(':');
+  }
+
+  private async invalidateContentCaches(content: any): Promise<void> {
+    const cacheKeys = [
+      `${CACHE_PREFIX}${content._id}`,
+      `${CACHE_PREFIX}slug:${content.slug}:station:${content.stationId || 'global'}`,
+      `content:metrics:${content._id}`
+    ];
+
+    await Promise.all([
+      ...cacheKeys.map(key => redis.del(key)),
+      this.invalidateListCaches(),
+      redis.del(`content:stats:${content.type}`),
+      redis.del(`content:stats:all`)
+    ]);
+  }
+
+  private async invalidateListCaches(): Promise<void> {
+    const keys = await redis.keys(`${LIST_CACHE_PREFIX}*`);
+    if (keys.length > 0) {
+      await redis.del(keys);
+    }
+  }
+
+  private getDateFilter(timeframe: 'day' | 'week' | 'month'): any {
+    const now = new Date();
+    let startDate = new Date();
+
+    switch (timeframe) {
+      case 'day':
+        startDate.setDate(now.getDate() - 1);
+        break;
+      case 'week':
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        startDate.setMonth(now.getMonth() - 1);
+        break;
+    }
+
+    return { $gte: startDate };
+  }
 }
 
-export async function toggleLike(contentId: Types.ObjectId, increment = true) {
-  return Content.findByIdAndUpdate(
-    contentId,
-    { $inc: { "metrics.likes": increment ? 1 : -1 } },
-    { new: true }
-  );
-}
-
-/* ----------------------------------
-   Discovery
------------------------------------ */
-
-export async function getRelatedContent(
-  contentId: Types.ObjectId,
-  limit = 6
-) {
-  const content = await Content.findById(contentId).select(
-    "categoryIds stationId"
-  );
-  if (!content) return [];
-
-  return Content.find({
-    _id: { $ne: contentId },
-    stationId: content.stationId,
-    categoryIds: { $in: content.categoryIds },
-    status: "published",
-  })
-    .limit(limit)
-    .lean();
-}
+export const contentService = new ContentService();
