@@ -1,22 +1,48 @@
-import { connectDB } from "@/lib/db";
-import { getContentBySlug } from "@/services/content.service";
-import { Types } from "mongoose";
+import { NextRequest } from 'next/server';
+import { contentService } from '@/services/content.service';
+import { ApiResponse } from '@/lib/api/response';
+import { logger } from '@/lib/logger';
+
+interface RouteParams {
+  params: {
+    slug: string;
+  };
+}
 
 export async function GET(
-  req: Request,
-  { params }: { params: { slug: string } }
+  request: NextRequest,
+  { params }: RouteParams
 ) {
-  await connectDB();
-
-  const stationId = new URL(req.url).searchParams.get("stationId");
-  if (!stationId) {
-    return Response.json({ error: "stationId required" }, { status: 400 });
+  try {
+    const { slug } = params;
+    const searchParams = request.nextUrl.searchParams;
+    
+    const stationId = searchParams.get('stationId') || undefined;
+    const includeEngagement = searchParams.get('includeEngagement') === 'true';
+    
+    const content = await contentService.getContentBySlug(
+      slug,
+      stationId,
+      includeEngagement
+    );
+    
+    logger.info('Content fetched by slug', { 
+      slug, 
+      stationId,
+      contentId: content._id 
+    });
+    
+    return ApiResponse.success(content);
+  } catch (error: any) {
+    logger.error('Error fetching content by slug', { 
+      slug: params.slug, 
+      error: error.message 
+    });
+    
+    if (error.message.includes('not found')) {
+      return ApiResponse.notFound(error.message);
+    }
+    
+    return ApiResponse.error('Failed to fetch content', 500);
   }
-
-  const content = await getContentBySlug(
-    params.slug,
-    new Types.ObjectId(stationId)
-  );
-
-  return Response.json({ data: content });
 }

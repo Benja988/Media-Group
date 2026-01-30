@@ -1,3 +1,5 @@
+// lib/auth/token.ts
+
 import jwt from "jsonwebtoken";
 import { JWTPayload } from "@/types/auth";
 import dotenv from "dotenv";

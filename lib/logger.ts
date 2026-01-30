@@ -1,3 +1,5 @@
+// lib/logger.ts
+
 import { User } from "./models";
 
 type LogLevel = "info" | "warn" | "error";

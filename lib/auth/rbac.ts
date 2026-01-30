@@ -1,3 +1,5 @@
+// lib/auth/rbac.ts
+
 import { UserRole } from "@/types/auth";
 
 const rolePermissions: Record<UserRole, string[]> = {

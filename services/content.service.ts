@@ -595,7 +595,6 @@ export class ContentService {
     }
   }
 
-  // Private helper methods
 
  private async validateRelationships(data: ContentCreateDto): Promise<void> {
   const validationPromises: Promise<void>[] = [];

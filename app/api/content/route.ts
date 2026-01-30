@@ -1,59 +1,106 @@
-import { connectDB } from "@/lib/db";
-import { requireAuth } from "@/middleware/auth";
-import { listContent, createContent } from "@/services/content.service";
-import { Types } from "mongoose";
+import { NextRequest } from 'next/server';
+import { contentService } from '@/services/content.service';
+import { ContentCreateDto, ContentQueryDto } from '@/types/content.types';
+import { ApiResponse } from '@/lib/api/response';
+import { withRoles, AuthenticatedRequest } from '@/lib/api/middleware';
+import { validateRequest, contentValidationSchema } from '@/lib/api/validation';
+import { logger } from '@/lib/logger';
 
-export async function GET(req: Request) {
-  await connectDB();
-  await requireAuth(req);
-
-  const url = new URL(req.url);
-
+// GET - List content (public)
+export async function GET(request: NextRequest) {
   try {
-    const result = await listContent({
-      stationId: url.searchParams.get("stationId")
-        ? new Types.ObjectId(url.searchParams.get("stationId")!)
-        : undefined,
-      channelId: url.searchParams.get("channelId")
-        ? new Types.ObjectId(url.searchParams.get("channelId")!)
-        : undefined,
-      authorId: url.searchParams.get("authorId")
-        ? new Types.ObjectId(url.searchParams.get("authorId")!)
-        : undefined,
-      type: url.searchParams.get("type") || undefined,
-      status: url.searchParams.get("status") || undefined,
-      categoryId: url.searchParams.get("categoryId")
-        ? new Types.ObjectId(url.searchParams.get("categoryId")!)
-        : undefined,
-      tagId: url.searchParams.get("tagId")
-        ? new Types.ObjectId(url.searchParams.get("tagId")!)
-        : undefined,
-      limit: Number(url.searchParams.get("limit") || 20),
-      offset: Number(url.searchParams.get("offset") || 0),
-      sortBy: url.searchParams.get("sortBy") || "createdAt",
-      sortOrder: url.searchParams.get("sortOrder") === "1" ? 1 : -1,
+    const searchParams = request.nextUrl.searchParams;
+
+    // Parse query parameters
+    const query: ContentQueryDto = {
+      type: (searchParams.get('type') as any) || undefined,
+      status: (searchParams.get('status') as any) || undefined,
+      stationId: searchParams.get('stationId') || undefined,
+      channelId: searchParams.get('channelId') || undefined,
+      authorId: searchParams.get('authorId') || undefined,
+      categoryId: searchParams.get('categoryId') || undefined,
+      tagId: searchParams.get('tagId') || undefined,
+      search: searchParams.get('search') || undefined,
+      sortBy: searchParams.get('sortBy') || undefined,
+      sortOrder: (searchParams.get('sortOrder') as 'asc' | 'desc') || undefined,
+      page: searchParams.get('page') ? parseInt(searchParams.get('page')!, 10) : undefined,
+      limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : undefined,
+      includeDrafts: false, // 🔒 never allowed in public GET
+    };
+
+    const contentList = await contentService.getContentList(query);
+
+    logger.info('Content list fetched', {
+      count: contentList.data.length,
+      filters: query,
     });
 
-    return Response.json(result);
-  } catch (err: any) {
-    return Response.json({ error: err.message }, { status: 400 });
+    return ApiResponse.success({
+      data: contentList.data,
+      pagination: contentList.pagination,
+      filters: contentList.filters,
+    });
+  } catch (error: any) {
+    logger.error('Error fetching content list', { error: error.message });
+    return ApiResponse.error('Failed to fetch content list', 500);
   }
 }
 
-export async function POST(req: Request) {
-  await connectDB();
-  const payload = await requireAuth(req);
+// POST - Create content (authenticated)
+export async function POST(request: AuthenticatedRequest) {
+  return withRoles([
+    'super_admin',
+    'group_admin',
+    'station_admin',
+    'editor',
+    'contributor',
+  ])(request, async (req) => {
+    try {
+      const body = await req.json();
+      const user = req.user!;
 
-  try {
-    const body = await req.json();
+      const validationResult = validateRequest(body, contentValidationSchema);
 
-    const content = await createContent({
-      ...body,
-      authorId: new Types.ObjectId(payload.sub),
-    });
+      if (!validationResult.valid) {
+        return ApiResponse.validationError(validationResult.errors);
+      }
 
-    return Response.json({ data: content }, { status: 201 });
-  } catch (err: any) {
-    return Response.json({ error: err.message }, { status: 400 });
-  }
+      const contentData: ContentCreateDto = {
+        ...validationResult.data,
+        authorId: validationResult.data.authorId || user.userId,
+      };
+
+      // Contributors can only create drafts
+      if (user.role === 'contributor' && contentData.status !== 'draft') {
+        return ApiResponse.forbidden(
+          'Contributors can only create draft content'
+        );
+      }
+
+      const content = await contentService.createContent(contentData);
+
+      logger.info('Content created', {
+        contentId: content._id,
+        userId: user.userId,
+        type: content.type,
+      });
+
+      return ApiResponse.success(
+        content,
+        'Content created successfully',
+        201
+      );
+    } catch (error: any) {
+      logger.error('Error creating content', {
+        error: error.message,
+        userId: req.user?.userId,
+      });
+
+      if (error.message?.includes('already exists')) {
+        return ApiResponse.conflict(error.message);
+      }
+
+      return ApiResponse.error('Failed to create content', 500);
+    }
+  });
 }

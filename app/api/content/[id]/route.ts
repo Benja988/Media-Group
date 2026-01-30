@@ -1,42 +1,195 @@
-import { connectDB } from "@/lib/db";
-import { requireAuth } from "@/middleware/auth";
-import {
-  getContentById,
-  updateContent,
-  deleteContent,
-} from "@/services/content.service";
-import { Types } from "mongoose";
+import { NextRequest } from 'next/server';
+import { contentService } from '@/services/content.service';
+import { ContentUpdateDto } from '@/types/content.types';
+import { ApiResponse } from '@/lib/api/response';
+import { withAuth, withRoles, AuthenticatedRequest } from '@/lib/api/middleware';
+import { validateRequest, contentValidationSchema } from '@/lib/api/validation';
+import { logger } from '@/lib/logger';
 
-interface Params {
-  params: { id: string };
+interface RouteParams {
+  params: {
+    id: string;
+  };
 }
 
-export async function GET(_: Request, { params }: Params) {
-  await connectDB();
-  await requireAuth(_);
-
-  const content = await getContentById(new Types.ObjectId(params.id));
-  return Response.json({ data: content });
+// GET - Get content by ID (public)
+export async function GET(
+  request: NextRequest,
+  { params }: RouteParams
+) {
+  try {
+    const { id } = params;
+    const searchParams = request.nextUrl.searchParams;
+    
+    const includeEngagement = searchParams.get('includeEngagement') === 'true';
+    const incrementView = searchParams.get('incrementView') !== 'false'; // Default true
+    
+    const content = await contentService.getContentById(
+      id,
+      includeEngagement,
+      incrementView
+    );
+    
+    logger.info('Content fetched', { contentId: id });
+    
+    return ApiResponse.success(content);
+  } catch (error: any) {
+    logger.error('Error fetching content', { 
+      contentId: params.id, 
+      error: error.message 
+    });
+    
+    if (error.message.includes('not found')) {
+      return ApiResponse.notFound(error.message);
+    }
+    
+    return ApiResponse.error('Failed to fetch content', 500);
+  }
 }
 
-export async function PUT(req: Request, { params }: Params) {
-  await connectDB();
-  await requireAuth(req);
+// PUT - Update content (authenticated)
+export async function PUT(
+  request: AuthenticatedRequest,
+  { params }: RouteParams
+) {
+  return await withAuth(request, async (req) => {
+    try {
+      const { id } = params;
+      const user = req.user!;
+      const body = await req.json();
+      
+      // Check if content exists
+      const existingContent = await contentService.getContentById(id, false, false);
+      
+      // Check permissions
+      const isOwner = existingContent.authorId === user.userId;
+      const isSuperAdmin = user.role === 'super_admin';
+      const isGroupAdmin = user.role === 'group_admin';
+      const isStationAdmin = user.role === 'station_admin';
+      const isEditor = user.role === 'editor';
+      
+      let canEdit = false;
+      
+      if (isSuperAdmin) {
+        canEdit = true;
+      } else if (isGroupAdmin || isStationAdmin) {
+        // Group/Station admins can edit content in their groups/stations
+        // You might need additional checks here
+        canEdit = true;
+      } else if (isEditor) {
+        // Editors can edit published content
+        canEdit = existingContent.status !== 'published' || isOwner;
+      } else if (isOwner) {
+        // Owners can edit their own content
+        canEdit = true;
+      }
+      
+      if (!canEdit) {
+        return ApiResponse.forbidden();
+      }
 
-  const body = await req.json();
+      // Validate update data
+      const updateSchema = { ...contentValidationSchema };
+      delete updateSchema.type.required; 
+      delete updateSchema.title.required;
+      
+      const validationResult = validateRequest(body, updateSchema);
+      
+      if (!validationResult.valid) {
+        return ApiResponse.validationError(validationResult.errors);
+      }
 
-  const content = await updateContent({
-    id: new Types.ObjectId(params.id),
-    ...body,
+      // Additional permission checks for specific fields
+      if (body.authorId && body.authorId !== existingContent.authorId && !isSuperAdmin) {
+        return ApiResponse.forbidden('Only super admin can change content author');
+      }
+
+      // Contributors can only update their own drafts
+      if (user.role === 'contributor' && existingContent.status !== 'draft') {
+        return ApiResponse.forbidden('Contributors can only update draft content');
+      }
+
+      const contentData: ContentUpdateDto = validationResult.data;
+      const content = await contentService.updateContent(id, contentData);
+      
+      logger.info('Content updated', { 
+        contentId: id, 
+        userId: user.userId,
+        updates: Object.keys(contentData)
+      });
+      
+      return ApiResponse.success(content, 'Content updated successfully');
+    } catch (error: any) {
+      logger.error('Error updating content', { 
+        contentId: params.id, 
+        userId: req.user?.userId,
+        error: error.message 
+      });
+      
+      if (error.message.includes('not found')) {
+        return ApiResponse.notFound(error.message);
+      }
+      
+      return ApiResponse.error('Failed to update content', 500);
+    }
   });
-
-  return Response.json({ data: content });
 }
 
-export async function DELETE(_: Request, { params }: Params) {
-  await connectDB();
-  await requireAuth(_);
+// DELETE - Delete content (authenticated)
+export async function DELETE(
+  request: AuthenticatedRequest,
+  { params }: RouteParams
+) {
+  return await withAuth(request, async (req) => {
+    try {
+      const { id } = params;
+      const user = req.user!;
+      
+      // Check if content exists
+      const existingContent = await contentService.getContentById(id, false, false);
+      
+      // Check permissions
+      const isOwner = existingContent.authorId === user.userId;
+      const isSuperAdmin = user.role === 'super_admin';
+      const isGroupAdmin = user.role === 'group_admin';
+      const isStationAdmin = user.role === 'station_admin';
+      
+      let canDelete = false;
+      
+      if (isSuperAdmin) {
+        canDelete = true;
+      } else if (isGroupAdmin || isStationAdmin) {
+        // Group/Station admins can delete content in their groups/stations
+        canDelete = true;
+      } else if (isOwner && existingContent.status === 'draft') {
+        // Owners can only delete their own drafts
+        canDelete = true;
+      }
+      
+      if (!canDelete) {
+        return ApiResponse.forbidden();
+      }
 
-  await deleteContent(new Types.ObjectId(params.id));
-  return Response.json({ success: true });
+      await contentService.deleteContent(id);
+      
+      logger.info('Content deleted', { 
+        contentId: id, 
+        userId: user.userId 
+      });
+      
+      return ApiResponse.success(null, 'Content deleted successfully');
+    } catch (error: any) {
+      logger.error('Error deleting content', { 
+        contentId: params.id, 
+        userId: req.user?.userId,
+        error: error.message 
+      });
+      
+      if (error.message.includes('not found')) {
+        return ApiResponse.notFound(error.message);
+      }
+      
+      return ApiResponse.error('Failed to delete content', 500);
+    }
+  });
 }
