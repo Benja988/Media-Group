@@ -1,5 +1,7 @@
 // app/admin/layout.tsx
 
+import './globals.css';
+import '@tinymce/tinymce/tinymce.min.css';
 import AuthGuard from "@/context/AuthGuard";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 

@@ -9,6 +9,7 @@ import {
   Users,
   Settings,
   Plus,
+  TrendingUp,
 } from 'lucide-react';
 
 const sidebarItems = [
@@ -24,6 +25,16 @@ const sidebarItems = [
     subItems: [
       { name: 'All Content', href: '/admin/content' },
       { name: 'New Content', href: '/admin/content/new' },
+    ],
+  },
+  {
+    name: 'Engagement',
+    href: '/admin/engagement',
+    icon: TrendingUp,
+    subItems: [
+      { name: 'Analytics Dashboard', href: '/admin/engagement' },
+      { name: 'User Insights', href: '/admin/engagement/users' },
+      { name: 'Content Performance', href: '/admin/engagement/content' },
     ],
   },
   {

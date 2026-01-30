@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { contentService } from '@/services/content.service';
 import { ContentUpdateDto } from '@/types/content.types';
 import { ApiResponse } from '@/lib/api/response';
-import { withAuth, withRoles, AuthenticatedRequest } from '@/lib/api/middleware';
+import { withAuth, AuthenticatedRequest } from '@/lib/api/middleware';
 import { validateRequest, contentValidationSchema } from '@/lib/api/validation';
 import { logger } from '@/lib/logger';
 
@@ -73,8 +73,6 @@ export async function PUT(
       if (isSuperAdmin) {
         canEdit = true;
       } else if (isGroupAdmin || isStationAdmin) {
-        // Group/Station admins can edit content in their groups/stations
-        // You might need additional checks here
         canEdit = true;
       } else if (isEditor) {
         // Editors can edit published content

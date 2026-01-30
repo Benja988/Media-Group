@@ -72,3 +72,25 @@ export function calculatePagination(page: number, limit: number, total: number) 
     skip: (page - 1) * limit
   };
 }
+
+/**
+ * Format date to a human-readable string
+ * Example: Jan 30, 2026
+ */
+export function formatDate(
+  date: string | Date | null | undefined,
+  locale: string = 'en-US',
+  options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }
+): string {
+  if (!date) return '—';
+
+  const parsedDate = date instanceof Date ? date : new Date(date);
+
+  if (isNaN(parsedDate.getTime())) return 'Invalid date';
+
+  return new Intl.DateTimeFormat(locale, options).format(parsedDate);
+}
