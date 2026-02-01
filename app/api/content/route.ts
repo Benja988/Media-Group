@@ -59,6 +59,8 @@ export async function POST(request: AuthenticatedRequest) {
       const body = await req.json();
       const user = req.user!;
 
+      console.log('User is:', user);
+
       const validationResult = validateRequest(body, contentValidationSchema);
 
       if (!validationResult.valid) {

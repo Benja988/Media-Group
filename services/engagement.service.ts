@@ -1,6 +1,5 @@
 import mongoose, { Types } from 'mongoose';
 import { AppError } from '@/utils/errors';
-import { redis } from '@/config/redis';
 import { 
   EngagementCreateDto,
   EngagementQueryDto,
@@ -11,10 +10,87 @@ import {
 } from '@/types/engagement.types';
 import { Engagement, Content } from '@/lib/models';
 
-// Cache configuration
-const ENGAGEMENT_CACHE_TTL = 1800; // 30 minutes
-const LEADERBOARD_CACHE_TTL = 3600; // 1 hour
+// In-memory cache configuration
+const ENGAGEMENT_CACHE_TTL = 1800; // 30 minutes (in seconds)
+const LEADERBOARD_CACHE_TTL = 3600; // 1 hour (in seconds)
 const CACHE_PREFIX = 'engagement:';
+
+// Simple in-memory cache implementation
+class InMemoryCache {
+  private cache = new Map<string, { value: any; expiresAt: number }>();
+  private cleanupInterval: NodeJS.Timeout;
+
+  constructor() {
+    // Clean up expired entries every minute
+    this.cleanupInterval = setInterval(() => this.cleanupExpired(), 60000);
+  }
+
+  set(key: string, value: any, ttl: number = 0): void {
+    const expiresAt = ttl > 0 ? Date.now() + (ttl * 1000) : 0;
+    this.cache.set(key, { value, expiresAt });
+  }
+
+  get<T = any>(key: string): T | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    
+    if (entry.expiresAt > 0 && Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    return entry.value;
+  }
+
+  del(key: string): void {
+    this.cache.delete(key);
+  }
+
+  async mget(keys: string[]): Promise<(string | null)[]> {
+    return keys.map(key => {
+      const value = this.get(key);
+      return value ? JSON.stringify(value) : null;
+    });
+  }
+
+  async keys(pattern: string): Promise<string[]> {
+    const regex = new RegExp(pattern.replace(/\*/g, '.*'));
+    const matchingKeys: string[] = [];
+    
+    for (const key of this.cache.keys()) {
+      if (regex.test(key)) {
+        matchingKeys.push(key);
+      }
+    }
+    
+    return matchingKeys;
+  }
+
+  async setex(key: string, ttl: number, value: string): Promise<void> {
+    this.set(key, JSON.parse(value), ttl);
+  }
+
+  async delMultiple(keys: string[]): Promise<void> {
+    keys.forEach(key => this.cache.delete(key));
+  }
+
+  private cleanupExpired(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache.entries()) {
+      if (entry.expiresAt > 0 && now > entry.expiresAt) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  dispose(): void {
+    clearInterval(this.cleanupInterval);
+    this.cache.clear();
+  }
+}
+
+// Global cache instance
+const cache = new InMemoryCache();
 
 export class EngagementService {
   /**
@@ -63,9 +139,9 @@ export class EngagementService {
     try {
       const cacheKey = `${CACHE_PREFIX}content:${contentId}:all`;
       
-      const cachedEngagement = await redis.get(cacheKey);
+      const cachedEngagement = cache.get(cacheKey);
       if (cachedEngagement) {
-        return JSON.parse(cachedEngagement);
+        return cachedEngagement;
       }
 
       const [likes, comments, recentComments, shares] = await Promise.all([
@@ -84,7 +160,7 @@ export class EngagementService {
       };
 
       // Cache the result
-      await redis.setex(cacheKey, ENGAGEMENT_CACHE_TTL, JSON.stringify(result));
+      cache.set(cacheKey, result, ENGAGEMENT_CACHE_TTL);
 
       return result;
     } catch (error) {
@@ -99,9 +175,9 @@ export class EngagementService {
     try {
       const cacheKey = `${CACHE_PREFIX}content:${contentId}:stats`;
       
-      const cachedStats = await redis.get(cacheKey);
+      const cachedStats = cache.get(cacheKey);
       if (cachedStats) {
-        return JSON.parse(cachedStats);
+        return cachedStats;
       }
 
       const [aggregatedStats, hourlyTrend, userEngagement] = await Promise.all([
@@ -137,7 +213,7 @@ export class EngagementService {
       };
 
       // Cache with shorter TTL for frequently changing data
-      await redis.setex(cacheKey, 300, JSON.stringify(stats));
+      cache.set(cacheKey, stats, 300);
 
       return stats;
     } catch (error) {
@@ -155,9 +231,9 @@ export class EngagementService {
     try {
       const cacheKey = this.generateUserEngagementsCacheKey(userId, query);
       
-      const cachedEngagements = await redis.get(cacheKey);
+      const cachedEngagements = cache.get(cacheKey);
       if (cachedEngagements) {
-        return JSON.parse(cachedEngagements);
+        return cachedEngagements;
       }
 
       const { type, contentId, limit = 50, page = 1 } = query;
@@ -179,7 +255,7 @@ export class EngagementService {
       );
 
       // Cache user engagements
-      await redis.setex(cacheKey, ENGAGEMENT_CACHE_TTL, JSON.stringify(enrichedEngagements));
+      cache.set(cacheKey, enrichedEngagements, ENGAGEMENT_CACHE_TTL);
 
       return enrichedEngagements;
     } catch (error) {
@@ -194,9 +270,9 @@ export class EngagementService {
     try {
       const cacheKey = `${CACHE_PREFIX}user:${userId}:summary`;
       
-      const cachedSummary = await redis.get(cacheKey);
+      const cachedSummary = cache.get(cacheKey);
       if (cachedSummary) {
-        return JSON.parse(cachedSummary);
+        return cachedSummary;
       }
 
       const [aggregatedStats, recentEngagements, topContent] = await Promise.all([
@@ -262,7 +338,7 @@ export class EngagementService {
       };
 
       // Cache user summary
-      await redis.setex(cacheKey, ENGAGEMENT_CACHE_TTL, JSON.stringify(summary));
+      cache.set(cacheKey, summary, ENGAGEMENT_CACHE_TTL);
 
       return summary;
     } catch (error) {
@@ -311,9 +387,9 @@ export class EngagementService {
     try {
       const cacheKey = `${CACHE_PREFIX}leaderboard:${type || 'all'}:${timeframe}:${limit}`;
       
-      const cachedLeaderboard = await redis.get(cacheKey);
+      const cachedLeaderboard = cache.get(cacheKey);
       if (cachedLeaderboard) {
-        return JSON.parse(cachedLeaderboard);
+        return cachedLeaderboard;
       }
 
       const dateFilter = this.getDateFilter(timeframe);
@@ -359,7 +435,7 @@ export class EngagementService {
       ]);
 
       // Cache leaderboard
-      await redis.setex(cacheKey, LEADERBOARD_CACHE_TTL, JSON.stringify(leaderboard));
+      cache.set(cacheKey, leaderboard, LEADERBOARD_CACHE_TTL);
 
       return leaderboard;
     } catch (error) {
@@ -370,52 +446,50 @@ export class EngagementService {
   /**
    * Batch record engagements (for analytics imports, etc.)
    */
-  // In your engagement.service.ts, update the batchRecordEngagements method:
+  async batchRecordEngagements(engagements: EngagementCreateDto[]): Promise<void> {
+    try {
+      if (engagements.length > 1000) {
+        throw new AppError('Batch size too large. Maximum 1000 engagements per batch.', 400);
+      }
 
-async batchRecordEngagements(engagements: EngagementCreateDto[]): Promise<void> {
-  try {
-    if (engagements.length > 1000) {
-      throw new AppError('Batch size too large. Maximum 1000 engagements per batch.', 400);
-    }
+      // Validate all content exists
+      const contentIds = [...new Set(engagements.map(e => e.contentId))];
+      const existingContent = await Content.find({ _id: { $in: contentIds } }).select('_id').lean();
+      const existingContentIds = new Set(existingContent.map(c => c._id.toString()));
 
-    // Validate all content exists
-    const contentIds = [...new Set(engagements.map(e => e.contentId))];
-    const existingContent = await Content.find({ _id: { $in: contentIds } }).select('_id').lean();
-    const existingContentIds = new Set(existingContent.map(c => c._id.toString()));
+      const validEngagements = engagements.filter(e => existingContentIds.has(e.contentId));
 
-    const validEngagements = engagements.filter(e => existingContentIds.has(e.contentId));
+      if (validEngagements.length === 0) {
+        throw new AppError('No valid engagements to record', 400);
+      }
 
-    if (validEngagements.length === 0) {
-      throw new AppError('No valid engagements to record', 400);
-    }
+      // Record engagements
+      await Engagement.insertMany(validEngagements, { ordered: false });
 
-    // Record engagements
-    await Engagement.insertMany(validEngagements, { ordered: false });
+      // Update content metrics in bulk
+      await this.batchUpdateContentMetrics(validEngagements);
 
-    // Update content metrics in bulk
-    await this.batchUpdateContentMetrics(validEngagements);
+      // Invalidate caches for affected content
+      const affectedContentIds = [...new Set(validEngagements.map(e => e.contentId))];
+      await Promise.all(
+        affectedContentIds.map(contentId => 
+          this.invalidateEngagementCaches(contentId)
+        )
+      );
 
-    // Invalidate caches for affected content
-    const affectedContentIds = [...new Set(validEngagements.map(e => e.contentId))];
-    await Promise.all(
-      affectedContentIds.map(contentId => 
-        this.invalidateEngagementCaches(contentId)
-      )
-    );
-
-  } catch (error: unknown) {
-    if (error instanceof AppError) throw error;
-    
-    // Handle bulk write errors
-    if (error instanceof Error && error.name === 'BulkWriteError') {
-      // Log the error but continue
-      console.error('Partial failure in batch record engagements:', error);
-    } else {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      throw new AppError('Failed to batch record engagements', 500, errorMessage);
+    } catch (error: unknown) {
+      if (error instanceof AppError) throw error;
+      
+      // Handle bulk write errors
+      if (error instanceof Error && error.name === 'BulkWriteError') {
+        // Log the error but continue
+        console.error('Partial failure in batch record engagements:', error);
+      } else {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        throw new AppError('Failed to batch record engagements', 500, errorMessage);
+      }
     }
   }
-}
 
   // Private helper methods
 
@@ -432,11 +506,10 @@ async batchRecordEngagements(engagements: EngagementCreateDto[]): Promise<void> 
       });
 
       // Invalidate content cache
-      const contentCacheKey = `content:${contentId}`;
-      await redis.del(contentCacheKey);
+      cache.del(`content:${contentId}`);
       
       // Invalidate metrics cache
-      await redis.del(`content:metrics:${contentId}`);
+      cache.del(`content:metrics:${contentId}`);
     } catch (error) {
       console.error('Failed to update content metrics:', error);
     }
@@ -483,15 +556,15 @@ async batchRecordEngagements(engagements: EngagementCreateDto[]): Promise<void> 
   private async getEngagementCount(contentId: string, type: string): Promise<number> {
     const cacheKey = `${CACHE_PREFIX}content:${contentId}:count:${type}`;
     
-    const cachedCount = await redis.get(cacheKey);
-    if (cachedCount) {
-      return parseInt(cachedCount, 10);
+    const cachedCount = cache.get<number>(cacheKey);
+    if (cachedCount !== null) {
+      return cachedCount;
     }
 
     const count = await Engagement.countDocuments({ contentId, type });
     
     // Cache count with shorter TTL
-    await redis.setex(cacheKey, 300, count.toString());
+    cache.set(cacheKey, count, 300);
     
     return count;
   }
@@ -620,11 +693,11 @@ async batchRecordEngagements(engagements: EngagementCreateDto[]): Promise<void> 
     }
 
     // Also invalidate leaderboard caches
-    const leaderboardKeys = await redis.keys(`${CACHE_PREFIX}leaderboard:*`);
+    const leaderboardKeys = await cache.keys(`${CACHE_PREFIX}leaderboard:*`);
     cacheKeys.push(...leaderboardKeys);
 
     if (cacheKeys.length > 0) {
-      await redis.del(cacheKeys);
+      await cache.delMultiple(cacheKeys);
     }
   }
 

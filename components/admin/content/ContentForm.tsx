@@ -51,7 +51,7 @@ export default function ContentForm({
   // Handle title change with auto-slug generation
   const handleTitleChange = (value: string) => {
     onChange('title', value);
-    
+
     // Auto-generate slug if not manually modified
     if (!formData.slug || formData.slug === generateSlug(formData.title || '')) {
       const newSlug = generateSlug(value);
@@ -94,7 +94,7 @@ export default function ContentForm({
     const newCategories = selectedCategories.includes(categoryId)
       ? selectedCategories.filter(id => id !== categoryId)
       : [...selectedCategories, categoryId];
-    
+
     setSelectedCategories(newCategories);
     onChange('categoryIds', newCategories);
   };
@@ -104,7 +104,7 @@ export default function ContentForm({
     const newTags = selectedTags.includes(tagId)
       ? selectedTags.filter(id => id !== tagId)
       : [...selectedTags, tagId];
-    
+
     setSelectedTags(newTags);
     onChange('tagIds', newTags);
   };
@@ -127,10 +127,10 @@ export default function ContentForm({
       const newTags = [...selectedTags, newTagObj._id];
       setSelectedTags(newTags);
       onChange('tagIds', newTags);
-      
+
       // Add to local tags array (in a real app, this would come from API)
       // tags.push(newTagObj);
-      
+
       setNewTag('');
     } catch (error) {
       console.error('Error adding tag:', error);
@@ -144,17 +144,22 @@ export default function ContentForm({
       const formData = new FormData();
       formData.append('file', file);
 
+      const token = localStorage.getItem('accessToken'); // or wherever you store it
+
       const response = await fetch('/api/upload', {
         method: 'POST',
-        body: formData
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        onChange('thumbnailUrl', data.url);
-      } else {
+      if (!response.ok) {
         throw new Error('Upload failed');
       }
+
+      const data = await response.json();
+      onChange('thumbnailUrl', data.data.url);
     } catch (error) {
       console.error('Error uploading image:', error);
       alert('Failed to upload image');
@@ -162,6 +167,7 @@ export default function ContentForm({
       setUploadingImage(false);
     }
   };
+
 
   // Filter channels based on selected station
   const filteredChannels = formData.stationId
@@ -176,7 +182,7 @@ export default function ContentForm({
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
             Basic Information
           </h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Title */}
             <div>
@@ -204,13 +210,12 @@ export default function ContentForm({
                   required
                   value={formData.slug || ''}
                   onChange={(e) => handleSlugChange(e.target.value)}
-                  className={`w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10 ${
-                    slugAvailable === false 
-                      ? 'border-red-300 dark:border-red-700' 
-                      : slugAvailable === true 
-                      ? 'border-green-300 dark:border-green-700'
-                      : 'border-gray-300 dark:border-gray-600'
-                  }`}
+                  className={`w-full border rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10 ${slugAvailable === false
+                      ? 'border-red-300 dark:border-red-700'
+                      : slugAvailable === true
+                        ? 'border-green-300 dark:border-green-700'
+                        : 'border-gray-300 dark:border-gray-600'
+                    }`}
                   placeholder="url-slug"
                 />
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -250,11 +255,10 @@ export default function ContentForm({
                   key={type.value}
                   type="button"
                   onClick={() => onChange('type', type.value)}
-                  className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg transition-all ${
-                    formData.type === type.value
+                  className={`flex flex-col items-center justify-center p-4 border-2 rounded-lg transition-all ${formData.type === type.value
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                       : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                  }`}
+                    }`}
                 >
                   <span className="text-2xl mb-2">{type.icon}</span>
                   <span className="text-sm font-medium">{type.label}</span>
@@ -269,7 +273,7 @@ export default function ContentForm({
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
             Content *
           </h3>
-          
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Description / Content
@@ -376,7 +380,7 @@ export default function ContentForm({
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
             Categorization
           </h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Categories */}
             <div>
@@ -412,7 +416,7 @@ export default function ContentForm({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                 Tags
               </label>
-              
+
               {/* Tag Input */}
               <div className="flex mb-4">
                 <input
@@ -487,7 +491,7 @@ export default function ContentForm({
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
             Distribution
           </h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Station */}
             <div>

@@ -2,22 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { 
-  Search, 
-  Filter, 
-  Eye, 
-  Edit, 
-  Trash2, 
-  Plus, 
-  Calendar,
-  TrendingUp,
-  Users,
-  FileText,
-  Video,
-  Headphones,
-  Tv,
-  BarChart3
-} from 'lucide-react';
+import {Search, Filter, Eye, Edit, Trash2, Plus, Calendar, TrendingUp, Users, FileText, Video, Headphones, Tv, BarChart3} from "lucide-react";
 import { ContentResponse } from '@/types/content.types';
 import ContentStatsCard from '@/components/admin/content/ContentStatsCard';
 import ContentFilters from '@/components/admin/content/ContentFilters';
@@ -98,7 +83,7 @@ export default function ContentPage() {
 
   const handleSearch = (value: string) => {
     setSearchTerm(value);
-    setFilters(prev => ({ ...prev, page: 1 })); // Reset to page 1 on new search
+    setFilters(prev => ({ ...prev, page: 1 }));
   };
 
   const handleFilterChange = (newFilters: any) => {
@@ -123,7 +108,6 @@ export default function ContentPage() {
       });
 
       if (response.ok) {
-        // Refresh content list
         fetchContent();
         fetchStats();
         setShowDeleteModal(false);

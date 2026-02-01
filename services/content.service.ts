@@ -1,6 +1,5 @@
 import mongoose, { Types } from 'mongoose';
 import { Tag, Category, Station, Channel, Content } from '@/lib/models';
-import { redis } from '@/config/redis';
 import { generateSlug } from '@/utils/helpers';
 import { 
   ContentCreateDto, 
@@ -13,10 +12,11 @@ import {
 } from '@/types/content.types';
 import { AppError } from '@/utils/errors';
 import { engagementService } from './engagement.service';
+import { InMemoryCache } from '@/config/cache';
 
 // Cache configuration
-const CACHE_TTL = 3600; // 1 hour
-const POPULAR_CACHE_TTL = 1800; // 30 minutes
+const CACHE_TTL = 3600; 
+const POPULAR_CACHE_TTL = 1800;
 const CACHE_PREFIX = 'content:';
 const LIST_CACHE_PREFIX = 'content_list:';
 
@@ -29,6 +29,9 @@ interface AggregationResult {
 interface ByTypeResult extends AggregationResult {
   _id: 'news' | 'podcast' | 'video' | 'show';
 }
+
+// Reuse the same InMemoryCache instance
+const cache = new InMemoryCache();
 
 export class ContentService {
   /**
@@ -89,9 +92,9 @@ export class ContentService {
       const cacheKey = `${CACHE_PREFIX}${id}`;
       
       // Try cache first
-      const cachedContent = await redis.get(cacheKey);
+      const cachedContent = cache.get(cacheKey);
       if (cachedContent) {
-        const content = JSON.parse(cachedContent);
+        const content = cachedContent;
         
         // Increment view async if needed
         if (incrementView) {
@@ -118,7 +121,7 @@ export class ContentService {
       const enrichedContent = await this.enrichContentResponse(content);
       
       // Cache the result
-      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(enrichedContent));
+      cache.set(cacheKey, enrichedContent, CACHE_TTL);
 
       if (includeEngagement) {
         return await this.enrichWithEngagement(enrichedContent, id);
@@ -143,9 +146,9 @@ export class ContentService {
     try {
       const cacheKey = `${CACHE_PREFIX}slug:${slug}:station:${stationId || 'global'}`;
       
-      const cachedContent = await redis.get(cacheKey);
+      const cachedContent = cache.get(cacheKey);
       if (cachedContent) {
-        const content = JSON.parse(cachedContent);
+        const content = cachedContent;
         
         // Increment view async
         this.incrementViewCount(content._id);
@@ -169,7 +172,7 @@ export class ContentService {
       const enrichedContent = await this.enrichContentResponse(content);
       
       // Cache the result
-      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(enrichedContent));
+      cache.set(cacheKey, enrichedContent, CACHE_TTL);
 
       if (includeEngagement) {
         return await this.enrichWithEngagement(enrichedContent, content._id);
@@ -191,9 +194,9 @@ export class ContentService {
       const cacheKey = this.generateListCacheKey(query);
       
       // Try cache first
-      const cachedResult = await redis.get(cacheKey);
+      const cachedResult = cache.get(cacheKey);
       if (cachedResult) {
-        return JSON.parse(cachedResult);
+        return cachedResult;
       }
 
       const {
@@ -289,7 +292,7 @@ export class ContentService {
       };
 
       // Cache the result with shorter TTL for dynamic lists
-      await redis.setex(cacheKey, 300, JSON.stringify(result));
+      cache.set(cacheKey, result, 300);
 
       return result;
     } catch (error: unknown) {
@@ -374,9 +377,9 @@ export class ContentService {
 
       // Invalidate caches
       await Promise.all([
-        ...cacheKeys.map(key => redis.del(key)),
+        ...cacheKeys.map(key => cache.del(key)),
         this.invalidateListCaches(),
-        redis.del(`content:stats:${content.type}`)
+        cache.del(`content:stats:${content.type}`)
       ]);
 
       // Clean up engagements (optional, based on business logic)
@@ -395,9 +398,9 @@ export class ContentService {
     try {
       const cacheKey = `content:metrics:${id}`;
       
-      const cachedMetrics = await redis.get(cacheKey);
+      const cachedMetrics = cache.get(cacheKey);
       if (cachedMetrics) {
-        return JSON.parse(cachedMetrics);
+        return cachedMetrics;
       }
 
       const [content, engagementStats] = await Promise.all([
@@ -422,7 +425,7 @@ export class ContentService {
       };
 
       // Cache with shorter TTL for frequently changing data
-      await redis.setex(cacheKey, 300, JSON.stringify(metrics));
+      cache.set(cacheKey, metrics, 300);
 
       return metrics;
     } catch (error: unknown) {
@@ -439,9 +442,9 @@ export class ContentService {
     try {
       const cacheKey = `content:stats:${type || 'all'}`;
       
-      const cachedStats = await redis.get(cacheKey);
+      const cachedStats = cache.get(cacheKey);
       if (cachedStats) {
-        return JSON.parse(cachedStats);
+        return cachedStats;
       }
 
       const filter = type ? { type } : {};
@@ -484,7 +487,7 @@ export class ContentService {
       };
 
       // Cache stats for 5 minutes
-      await redis.setex(cacheKey, 300, JSON.stringify(stats));
+      cache.set(cacheKey, stats, 300);
 
       return stats;
     } catch (error: unknown) {
@@ -504,9 +507,9 @@ export class ContentService {
     try {
       const cacheKey = `content:popular:${type || 'all'}:${timeframe}:${limit}`;
       
-      const cachedContent = await redis.get(cacheKey);
+      const cachedContent = cache.get(cacheKey);
       if (cachedContent) {
-        return JSON.parse(cachedContent);
+        return cachedContent;
       }
 
       const dateFilter = this.getDateFilter(timeframe);
@@ -538,7 +541,7 @@ export class ContentService {
       );
 
       // Cache popular content
-      await redis.setex(cacheKey, POPULAR_CACHE_TTL, JSON.stringify(enrichedContent));
+      cache.set(cacheKey, enrichedContent, POPULAR_CACHE_TTL);
 
       return enrichedContent;
     } catch (error: unknown) {
@@ -553,7 +556,7 @@ export class ContentService {
   async getContentBatch(ids: string[]): Promise<ContentResponse[]> {
     try {
       const cacheKeys = ids.map(id => `${CACHE_PREFIX}${id}`);
-      const cachedResults = await redis.mget(cacheKeys);
+      const cachedResults = await cache.mget(cacheKeys);
       
       const resultMap = new Map<string, ContentResponse>();
       const idsToFetch: string[] = [];
@@ -578,10 +581,10 @@ export class ContentService {
           contents.map(async (content: any) => {
             const enriched = await this.enrichContentResponse(content);
             resultMap.set(content._id.toString(), enriched);
-            await redis.setex(
+            cache.set(
               `${CACHE_PREFIX}${content._id}`,
-              CACHE_TTL,
-              JSON.stringify(enriched)
+              enriched,
+              CACHE_TTL
             );
           })
         );
@@ -595,52 +598,51 @@ export class ContentService {
     }
   }
 
+  private async validateRelationships(data: ContentCreateDto): Promise<void> {
+    const validationPromises: Promise<void>[] = [];
 
- private async validateRelationships(data: ContentCreateDto): Promise<void> {
-  const validationPromises: Promise<void>[] = [];
-
-  if (data.stationId) {
-    validationPromises.push(
-      Station.findById(data.stationId).then((station) => {
-        if (!station) throw new AppError('Station not found', 400);
-      })
-    );
-  }
-
-  if (data.channelId) {
-    validationPromises.push(
-      Channel.findById(data.channelId).then((channel) => {
-        if (!channel) throw new AppError('Channel not found', 400);
-      })
-    );
-  }
-
-  // Fix: Add proper check for optional arrays
-  if (data.categoryIds && data.categoryIds.length > 0) {
-    validationPromises.push(
-      Category.countDocuments({ _id: { $in: data.categoryIds } })
-        .then((count: number) => {
-          if (count !== data.categoryIds!.length) {
-            throw new AppError('One or more categories not found', 400);
-          }
+    if (data.stationId) {
+      validationPromises.push(
+        Station.findById(data.stationId).then((station) => {
+          if (!station) throw new AppError('Station not found', 400);
         })
-    );
-  }
+      );
+    }
 
-  // Fix: Add proper check for optional arrays
-  if (data.tagIds && data.tagIds.length > 0) {
-    validationPromises.push(
-      Tag.countDocuments({ _id: { $in: data.tagIds } })
-        .then((count: number) => {
-          if (count !== data.tagIds!.length) {
-            throw new AppError('One or more tags not found', 400);
-          }
+    if (data.channelId) {
+      validationPromises.push(
+        Channel.findById(data.channelId).then((channel) => {
+          if (!channel) throw new AppError('Channel not found', 400);
         })
-    );
-  }
+      );
+    }
 
-  await Promise.all(validationPromises);
-}
+    // Fix: Add proper check for optional arrays
+    if (data.categoryIds && data.categoryIds.length > 0) {
+      validationPromises.push(
+        Category.countDocuments({ _id: { $in: data.categoryIds } })
+          .then((count: number) => {
+            if (count !== data.categoryIds!.length) {
+              throw new AppError('One or more categories not found', 400);
+            }
+          })
+      );
+    }
+
+    // Fix: Add proper check for optional arrays
+    if (data.tagIds && data.tagIds.length > 0) {
+      validationPromises.push(
+        Tag.countDocuments({ _id: { $in: data.tagIds } })
+          .then((count: number) => {
+            if (count !== data.tagIds!.length) {
+              throw new AppError('One or more tags not found', 400);
+            }
+          })
+      );
+    }
+
+    await Promise.all(validationPromises);
+  }
 
   private async enrichContentResponse(content: any): Promise<ContentResponse> {
     const [categories, tags, station, channel, author] = await Promise.all([
@@ -689,15 +691,15 @@ export class ContentService {
 
       // Update cache asynchronously
       const cacheKey = `${CACHE_PREFIX}${contentId}`;
-      const cachedContent = await redis.get(cacheKey);
+      const cachedContent = cache.get(cacheKey);
       if (cachedContent) {
-        const content = JSON.parse(cachedContent);
+        const content = cachedContent;
         content.metrics.views += 1;
-        await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(content));
+        cache.set(cacheKey, content, CACHE_TTL);
       }
 
       // Invalidate metrics cache
-      await redis.del(`content:metrics:${contentId}`);
+      cache.del(`content:metrics:${contentId}`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error('Failed to increment view count:', errorMessage);
@@ -742,17 +744,17 @@ export class ContentService {
     ];
 
     await Promise.all([
-      ...cacheKeys.map(key => redis.del(key)),
+      ...cacheKeys.map(key => cache.del(key)),
       this.invalidateListCaches(),
-      redis.del(`content:stats:${content.type}`),
-      redis.del(`content:stats:all`)
+      cache.del(`content:stats:${content.type}`),
+      cache.del(`content:stats:all`)
     ]);
   }
 
   private async invalidateListCaches(): Promise<void> {
-    const keys = await redis.keys(`${LIST_CACHE_PREFIX}*`);
+    const keys = await cache.keys(`${LIST_CACHE_PREFIX}*`);
     if (keys.length > 0) {
-      await redis.del(keys);
+      await cache.delMultiple(keys);
     }
   }
 
