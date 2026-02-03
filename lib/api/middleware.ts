@@ -1,3 +1,5 @@
+// lib/api/middleware.ts
+
 import { NextRequest } from 'next/server';
 import { JWTPayload } from '@/types/auth';
 import { verifyToken } from '@/lib/auth/token';
@@ -46,12 +48,10 @@ export function withRoles(requiredRoles: string[]) {
         return ApiResponse.unauthorized();
       }
 
-      // Super admin has access to everything
       if (user.role === 'super_admin') {
         return await handler(req);
       }
 
-      // Check if user has at least one of the required roles
       const hasRequiredRole = requiredRoles.some(role => 
         user.role === role || 
         (user.role && user.role.includes(role))
@@ -80,14 +80,11 @@ export function withPermissions(requiredPermissions: string[]) {
         return ApiResponse.unauthorized();
       }
 
-      // Super admin has all permissions
       if (user.role === 'super_admin') {
         return await handler(req);
       }
 
-      // Check permissions (you'll need to implement hasPermission)
-      // For now, we'll check roles
-      const hasRequiredPermission = true; // Implement your permission logic here
+      const hasRequiredPermission = true; 
 
       if (!hasRequiredPermission) {
         return ApiResponse.forbidden();

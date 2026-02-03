@@ -1,3 +1,5 @@
+// lib/api/validation.ts
+
 import { Types } from 'mongoose';
 
 export interface ValidationRule {
@@ -159,3 +161,38 @@ export const engagementValidationSchema: Record<string, ValidationRule> = {
   type: { required: true, type: 'string', enum: ['view', 'like', 'comment', 'share'] },
   value: { type: 'string', maxLength: 1000 }
 };
+
+export const categoryValidationSchema: Record<string, ValidationRule> = {
+  name: {
+    required: true,
+    type: "string",
+    minLength: 2,
+    maxLength: 100,
+  },
+  slug: {
+    required: true,
+    type: "string",
+    pattern: /^[a-z0-9-]+$/,
+  },
+  type: {
+    required: true,
+    type: "string",
+    enum: ["news", "podcast", "video", "show"],
+  },
+  description: {
+    type: "string",
+    maxLength: 1000,
+  },
+  parentId: {
+    type: "string",
+    mongoId: true,
+  },
+  order: {
+    type: "number",
+    min: 0,
+  },
+  isActive: {
+    type: "boolean",
+  },
+};
+

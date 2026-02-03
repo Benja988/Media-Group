@@ -1,5 +1,4 @@
-
-// How error are returned
+// lib/api/response.ts
 
 import { NextResponse } from 'next/server';
 

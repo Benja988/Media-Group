@@ -1,3 +1,5 @@
+// api/stations/[id]/route.ts
+
 import { connectDB } from "@/lib/db";
 import {
   getStationById,

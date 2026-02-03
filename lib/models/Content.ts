@@ -1,4 +1,5 @@
 import { Schema, model, models, Types } from "mongoose";
+import { required } from "zod/v4-mini";
 
 const ContentSchema = new Schema(
   {
@@ -35,12 +36,14 @@ const ContentSchema = new Schema(
     channelId: {
       type: Types.ObjectId,
       ref: "Channel",
+      required: false,
       index: true,
     },
 
     authorId: {
       type: Types.ObjectId,
       ref: "User",
+      required: false,
       index: true,
     },
 

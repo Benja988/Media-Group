@@ -14,13 +14,11 @@ import { AppError } from '@/utils/errors';
 import { engagementService } from './engagement.service';
 import { InMemoryCache } from '@/config/cache';
 
-// Cache configuration
 const CACHE_TTL = 3600; 
 const POPULAR_CACHE_TTL = 1800;
 const CACHE_PREFIX = 'content:';
 const LIST_CACHE_PREFIX = 'content_list:';
 
-// Define types for aggregation results
 interface AggregationResult {
   _id: string;
   count: number;
@@ -30,7 +28,6 @@ interface ByTypeResult extends AggregationResult {
   _id: 'news' | 'podcast' | 'video' | 'show';
 }
 
-// Reuse the same InMemoryCache instance
 const cache = new InMemoryCache();
 
 export class ContentService {

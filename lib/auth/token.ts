@@ -35,13 +35,11 @@ export function verifyToken(token: string): JWTPayload {
   try {
     return jwt.verify(token, JWT_SECRET) as JWTPayload;
   } catch (err) {
-    throw new Error("Unauthorized"); // unified error for all invalid/expired tokens
+    throw new Error("Unauthorized"); 
   }
 }
 
-/**
- * Optional: helper to parse token from cookie string
- */
+
 export function getTokenFromCookie(cookieHeader?: string): string | null {
   if (!cookieHeader) return null;
   const token = cookieHeader
