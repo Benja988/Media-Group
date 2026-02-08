@@ -4,9 +4,7 @@ import { ApiResponse } from '@/lib/api/response';
 import { logger } from '@/lib/logger';
 
 interface RouteParams {
-  params: {
-    contentId: string;
-  };
+  params: Promise<{ contentId: string }>
 }
 
 // GET - Get content engagements (public)
@@ -14,8 +12,9 @@ export async function GET(
   request: NextRequest,
   { params }: RouteParams
 ) {
+  const { contentId } = await params;
   try {
-    const { contentId } = params;
+    
     
     const engagement = await engagementService.getContentEngagement(contentId);
     
@@ -24,7 +23,7 @@ export async function GET(
     return ApiResponse.success(engagement);
   } catch (error: any) {
     logger.error('Error fetching content engagement', { 
-      contentId: params.contentId, 
+      contentId: contentId, 
       error: error.message 
     });
     

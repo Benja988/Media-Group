@@ -1,3 +1,5 @@
+// app/api/content/route.ts
+
 import { NextRequest } from 'next/server'
 import { contentService } from '@/services/content.service'
 import { ContentCreateDto, ContentQueryDto } from '@/types/content.types'
@@ -51,7 +53,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create content (authenticated)
+
 export async function POST(request: AuthenticatedRequest) {
   return withRoles([
     'super_admin',
@@ -64,7 +66,7 @@ export async function POST(request: AuthenticatedRequest) {
       const body = await req.json()
       const user = req.user!
 
-      console.log('User is:', user)
+      // console.log('User is:', user)
 
       const validationResult = validateRequest(body, contentValidationSchema)
 

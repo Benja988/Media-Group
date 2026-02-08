@@ -5,9 +5,7 @@ import { withAuth, AuthenticatedRequest } from '@/lib/api/middleware';
 import { logger } from '@/lib/logger';
 
 interface RouteParams {
-  params: {
-    id: string;
-  };
+  params: Promise<{ id: string }>
 }
 
 // DELETE - Delete engagement (authenticated, owner or admin)
@@ -16,8 +14,9 @@ export async function DELETE(
   { params }: RouteParams
 ) {
   return await withAuth(request, async (req) => {
+    const { id } = await params;
     try {
-      const { id } = params;
+
       const user = req.user!;
       
       // Only allow users to delete their own engagements (or admin)
@@ -33,7 +32,7 @@ export async function DELETE(
       return ApiResponse.success(null, 'Engagement deleted successfully');
     } catch (error: any) {
       logger.error('Error deleting engagement', { 
-        engagementId: params.id, 
+        engagementId: id, 
         userId: req.user?.userId,
         error: error.message 
       });

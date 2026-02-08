@@ -4,9 +4,11 @@ import { Types } from "mongoose";
 
 export async function POST(
   _: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+
   await connectDB();
-  const station = await restoreStation(new Types.ObjectId(params.id));
+  const station = await restoreStation(new Types.ObjectId(id));
   return Response.json(station);
 }

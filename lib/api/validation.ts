@@ -179,7 +179,7 @@ export const contentValidationSchema: Record<string, ValidationRule> = {
   thumbnailUrl: { type: 'string', url: true },
   duration: { type: 'number', min: 0 },
   stationId: { type: 'string', mongoId: true },
-  channelId: { type: 'string', mongoId: true },
+  // channelId: { type: 'string', mongoId: true },
   authorId: { type: 'string', mongoId: true },
   categoryIds: { type: 'array', items: { type: 'string', mongoId: true } },
   // tagIds: { type: 'array', items: { type: 'string', mongoId: true } },

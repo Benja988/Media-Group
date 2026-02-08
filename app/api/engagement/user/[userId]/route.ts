@@ -6,9 +6,7 @@ import { withAuth, AuthenticatedRequest } from '@/lib/api/middleware';
 import { logger } from '@/lib/logger';
 
 interface RouteParams {
-  params: {
-    userId: string;
-  };
+  params: Promise<{ userId: string }>
 }
 
 // GET - Get user engagements (authenticated, owner or admin)
@@ -17,8 +15,9 @@ export async function GET(
   { params }: RouteParams
 ) {
   return await withAuth(request, async (req) => {
+    const { userId } = await params;
     try {
-      const { userId } = params;
+      
       const user = req.user!;
       
       // Users can only view their own engagements (or admin)
@@ -46,7 +45,7 @@ export async function GET(
       return ApiResponse.success(engagements);
     } catch (error: any) {
       logger.error('Error fetching user engagements', { 
-        userId: params.userId, 
+        userId: userId, 
         requesterId: req.user?.userId,
         error: error.message 
       });

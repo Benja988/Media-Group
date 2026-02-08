@@ -9,22 +9,24 @@ import {
 
 export async function GET(
   _: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   await connectDB();
-  const mediaGroup = await getMediaGroupById(params.id);
+  const mediaGroup = await getMediaGroupById(id);
   return Response.json(mediaGroup);
 }
 
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   await connectDB();
   const body = await req.json();
 
   const mediaGroup = await updateMediaGroup({
-    id: params.id,
+    id: id,
     ...body,
   });
 
@@ -33,9 +35,10 @@ export async function PATCH(
 
 export async function DELETE(
   _: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   await connectDB();
-  await deleteMediaGroup(params.id);
+  await deleteMediaGroup(id);
   return Response.json({ success: true });
 }
