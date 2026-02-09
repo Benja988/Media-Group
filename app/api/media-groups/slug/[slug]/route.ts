@@ -2,13 +2,18 @@
 
 import { connectDB } from "@/lib/db";
 import { getMediaGroupBySlug } from "@/services/mediaGroup.service";
+import { NextRequest } from "next/server";
 
 export async function GET(
-  _: Request,
-  { params }: { params: { slug: string } }
+  _request: NextRequest,
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   await connectDB();
-  const mediaGroup = await getMediaGroupBySlug(params.slug);
+
+  const { slug } = await params;
+
+  const mediaGroup = await getMediaGroupBySlug(slug);
+
   return Response.json(mediaGroup);
 }
 

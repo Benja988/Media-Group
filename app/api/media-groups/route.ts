@@ -1,3 +1,5 @@
+// app/api/media-groups/route.ts
+
 import { connectDB } from "@/lib/db";
 import { requireAuth } from "@/middleware/auth";
 import {
